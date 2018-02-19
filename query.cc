@@ -26,7 +26,7 @@ uint16_t type_to_number(const std::string& type, bool check_case = true)
 		std::string num = type.substr(4, std::string::npos);
 		try {
 			unsigned long val = std::stoul(num, &index, 10);
-			if (num.begin() + index != num.end()) {
+			if (num.cbegin() + index != num.cend()) {
 				throw std::runtime_error("numeric QTYPE trailing garbage");
 			} else if (val > std::numeric_limits<uint16_t>::max()) {
 				throw std::runtime_error("numeric QTYPE out of range");
@@ -39,7 +39,7 @@ uint16_t type_to_number(const std::string& type, bool check_case = true)
 	} else {
 		if (check_case) {
 			std::string tmp(type);
-			std::transform(tmp.begin(), tmp.end(), tmp.begin(), ::toupper);
+			std::transform(tmp.cbegin(), tmp.cend(), tmp.begin(), ::toupper);
 			return type_map[type] = type_to_number(tmp, false);
 		} else {
 			throw std::runtime_error("unrecognised QTYPE: " + type);
@@ -57,4 +57,10 @@ Query::Query(const std::string& name, const std::string& type)
 	} else {
 		len = n;
 	}
+}
+
+Query::Query(const Buffer& input, size_t _len)
+{
+	len = _len;
+	std::copy(input.cbegin(), input.cbegin() + len, buffer.begin());
 }

@@ -121,7 +121,11 @@ int main(int argc, char *argv[])
 {
 	try {
 		Datafile tmp;
-		tmp.read("/tmp/queryfile-example-current");
+
+		tmp.read_raw("/tmp/queryfile-example-current.raw");
+
+		//tmp.read_txt("/tmp/queryfile-example-current");
+		//tmp.write_raw("/tmp/queryfile-example-current.raw");
 
 #if 0
 		global_data_t		gd;
