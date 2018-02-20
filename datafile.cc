@@ -6,6 +6,8 @@
 #include <cerrno>
 #include <algorithm>
 
+#include <arpa/inet.h>		// for ntohs() etc
+
 #include "datafile.h"
 
 void Datafile::read_txt(const std::string& filename)
@@ -15,7 +17,7 @@ void Datafile::read_txt(const std::string& filename)
 		throw std::system_error(errno, std::system_category(), "opening datafile");
 	}
 
-	std::deque<Query> list;
+	Ring<Query>::Storage list;
 	std::string name, type;
 	size_t line_no = 0;
 
@@ -44,14 +46,23 @@ void Datafile::read_raw(const std::string& filename)
 		throw std::system_error(errno, std::system_category(), "opening datafile");
 	}
 
-	std::deque<Query> list;
+	Ring<Query>::Storage list;
 	Query::Buffer buffer;
 	uint16_t len;
 
 	while (file) {
-		file.read(reinterpret_cast<char*>(&len), sizeof(len));
-		file.read(reinterpret_cast<char*>(buffer.data()), len);
-		list.emplace_back(Query(buffer, len));
+		if (file.read(reinterpret_cast<char*>(&len), sizeof(len))) {
+
+			len = ntohs(len);			// swap to host order
+			if (len > buffer.size()) {
+				std::cerr << list.size() << std::endl;
+				throw std::runtime_error("raw file record size exceeds maximum");
+			}
+
+			if (file.read(reinterpret_cast<char*>(buffer.data()), len)) {
+				list.emplace_back(Query(buffer, len));
+			}
+		}
 	}
 
 	file.close();
@@ -69,12 +80,10 @@ void Datafile::write_raw(const std::string& filename)
 
 	for (size_t i = 0, n = queries.count(); i < n; ++i) {
 		const auto& query = queries.next();
-
-		uint16_t len = query.size();
-		auto data = query.data();
+		uint16_t len = htons(query.size());	// big-endian
 
 		file.write(reinterpret_cast<const char*>(&len), sizeof(len));
-		file.write(reinterpret_cast<const char*>(data), len);
+		file.write(reinterpret_cast<const char*>(query.data()), query.size());
 	}
 
 	file.close();

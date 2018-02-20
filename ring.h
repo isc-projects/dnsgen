@@ -10,21 +10,26 @@
 
 template<typename T> class Ring {
 
+public:
+	typedef std::deque<T>		Storage;
+
 private:
-	std::deque<T>			contents;
+	Storage				contents;
 	std::atomic<size_t>		current;
-	size_t					_count = 0;
+	size_t				_count;
+
+
+public:
+	Ring() : current(), _count(0) { }
 
 public:
 	size_t count() const { return _count; }
 
-public:
-	void assign(std::deque<T>& _contents) {
+	void assign(Storage& _contents) {
 		std::swap(contents, _contents);
 		_count = contents.size();
 	}
 
-public:
 	const T& next() {	// via https://stackoverflow.com/questions/33554255/
 
 		size_t current_val = current++;

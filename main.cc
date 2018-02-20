@@ -1,16 +1,13 @@
+#include <iostream>
+#include <stdexcept>
 #include <cerrno>
 #include <cstring>
 #include <thread>
-#include <iostream>
-#include <stdexcept>
+#include <mutex>
+#include <condition_variable>
+
 #include <unistd.h>
-
-#if 1
-
-#include "datafile.h"
-
-#else
-
+#include <poll.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -23,26 +20,33 @@
 #include "datafile.h"
 
 typedef struct {
-	int					fd;
-	uint16_t			port_min;
+	int				fd;
+	uint16_t			index;
+	uint16_t			port_base;
 	uint16_t			port_count;
-	uint16_t			ip_id = 0;
-	uint16_t			query_id = 0;
+	uint16_t			port_offset;
+	uint16_t			ip_id;
+	uint16_t			query_id;
+	uint64_t			tx_count;
+	uint64_t			rx_count;
 } thread_data_t;
 
 typedef struct {
+	uint16_t			ifindex;
+	uint16_t			dest_port;
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
-	int					ifindex;
-	uint16_t			dest_port;
-	Datafile			data;
+	Datafile			queries;
+	std::atomic<bool>		stop;
+	bool				start;
+	std::mutex			mutex;
+	std::condition_variable		cv;
 } global_data_t;
 
 typedef struct __attribute__((packed)) {
-	struct iphdr		ip;
-	struct udphdr		udp;
-	uint8_t				payload[512];
-} query_t;
+	struct iphdr			ip;
+	struct udphdr			udp;
+} header_t;
 
 int get_socket(int ifindex)
 {
@@ -56,9 +60,6 @@ int get_socket(int ifindex)
 	memset(&saddr, 0, sizeof(saddr));
 	saddr.sll_family = AF_PACKET;
 	saddr.sll_ifindex = ifindex;
-	if (saddr.sll_ifindex == 0) {
-		throw std::system_error(errno, std::system_category(), "if_nametoindex");
-	}
 
 	if (bind(fd, reinterpret_cast<sockaddr *>(&saddr), sizeof(saddr)) < 0) {
 		throw std::system_error(errno, std::system_category(), "bind AF_PACKET");
@@ -73,76 +74,195 @@ int get_socket(int ifindex)
 	return fd;
 }
 
-void sender(const global_data_t& gd, thread_data_t& td)
+static uint16_t checksum(const iphdr& hdr)
 {
-	query_t	query;
+	uint32_t sum = 0;
 
-	query.ip.ihl = sizeof(query.ip) >> 2;
-	query.ip.version = 4;
-	query.ip.id = td.ip_id++;
-	query.ip.frag_off = htons(0x4000);		// DNF
-	query.ip.ttl = 2;
-	query.ip.protocol = IPPROTO_UDP;
-	query.ip.saddr = gd.src_ip;
-	query.ip.daddr = gd.dest_ip;
+	auto p = reinterpret_cast<const uint16_t *>(&hdr);
+	for (int i = 0, n = hdr.ihl * 2; i < n; ++i) {	//	.ihl = length / 4
+		sum += ntohs(*p++);
+	}
 
-	query.udp.source = htons(td.port_min);
-	query.udp.dest = htons(gd.dest_port);
-	query.udp.check = 0;
+	sum = (sum >> 16) + (sum & 0xffff);
+	sum += (sum >> 16);
 
-	query.udp.len = htons(sizeof(query.payload) + sizeof(query.udp));
-	query.ip.tot_len = htons(sizeof(query.payload) + sizeof(query.udp) + sizeof(query.ip));
-
-	sockaddr_ll daddr = { 0 };
-	daddr.sll_family = AF_PACKET;
-	daddr.sll_ifindex = gd.ifindex;
-	daddr.sll_protocol = htons(ETH_P_IP);
-
-	int err = sendto(td.fd,
-		reinterpret_cast<const void *>(&query),
-		540, 0, /* TMP length hack */
-		reinterpret_cast<const sockaddr *>(&daddr), sizeof(daddr));
-
-	std::cout << "sendto: " << err << " " << errno << std::endl;
-
-	sleep(5);
-	std::cout << "sender ending" << std::endl;
+	return static_cast<uint16_t>(~sum);
 }
 
-void receiver(const global_data_t& gd, thread_data_t& td)
+ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
-	sleep(7);
-	std::cout << "receiver ending" << std::endl;
+	auto query = gd.queries.next();
+
+	uint16_t payload_size = query.size();
+	uint16_t udp_size = payload_size + sizeof(udphdr);
+	uint16_t tot_size = udp_size + sizeof(iphdr);
+
+	header_t h = { 0, };
+
+	h.ip.ihl = 5;		// sizeof(iphdr) / 4
+	h.ip.version = 4;
+	h.ip.ttl = 8;
+	h.ip.protocol = IPPROTO_UDP;
+	h.ip.id = htons(td.ip_id++);
+	h.ip.saddr = gd.src_ip;
+	h.ip.daddr = gd.dest_ip;
+	h.ip.tot_len = htons(tot_size);
+	h.ip.check = htons(checksum(h.ip));
+
+	td.port_offset = (td.port_offset + 1) % td.port_count;
+
+	h.udp.source = htons(td.port_base + td.port_offset);
+	h.udp.dest = htons(gd.dest_port);
+	h.udp.len = htons(udp_size);
+
+	iovec iov[2] = {
+		{
+			reinterpret_cast<char *>(&h),
+			sizeof(h)
+		},
+		{
+			const_cast<char *>(reinterpret_cast<const char *>(query.data())),
+			query.size()
+		}
+	};
+
+	msghdr msg = {
+		reinterpret_cast<void *>(&addr), sizeof(addr), iov, 2,
+		nullptr, 0, 0
+	};
+
+	return sendmsg(td.fd, &msg, 0);
 }
 
-#endif
+void sender(global_data_t& gd, thread_data_t& td)
+{
+	std::array<uint8_t, 6> mac = { 0x3c, 0xfd, 0xfe, 0x03, 0xb6, 0x62 };
+
+	static sockaddr_ll addr = { 0 };
+	addr.sll_family = AF_PACKET;
+	addr.sll_ifindex = gd.ifindex;
+	addr.sll_protocol = htons(ETH_P_IP);
+	addr.sll_halen = IFHWADDRLEN;
+	memcpy(addr.sll_addr, mac.data(), 6);
+
+	// wait for start condition
+	{
+		std::unique_lock<std::mutex> lock(gd.mutex);
+		while (!gd.start) gd.cv.wait(lock);
+	}
+
+	while (!gd.stop) {
+		if (send_one(gd, td, addr) < 0) {
+			if (errno == EAGAIN) continue;
+			throw std::system_error(errno, std::system_category(), "sendmsg");
+		} else {
+			++td.tx_count;
+		}
+	}
+}
+
+ssize_t receive_one(global_data_t& gd, thread_data_t& td)
+{
+	uint8_t buffer[4096];
+	sockaddr_storage client;
+	socklen_t clientlen = sizeof(client);
+
+	auto len = recvfrom(td.fd, buffer, sizeof buffer, 0,
+			reinterpret_cast<sockaddr *>(&client), &clientlen);
+
+	return len;
+}
+
+void receiver(global_data_t& gd, thread_data_t& td)
+{
+	pollfd fds = { td.fd, POLLIN, 0 };
+
+	while (!gd.stop) {
+		int res = ::poll(&fds, 1, 1);
+		if (res < 0) {			// error
+			if (errno == EAGAIN) continue;
+			throw std::system_error(errno, std::system_category(), "poll");
+		} else if (res == 0) {		// timeout
+			continue;
+		}
+
+		res = receive_one(gd, td);
+		if (res < 0) {
+			if (errno == EAGAIN) continue;
+			throw std::system_error(errno, std::system_category(), "recvfrom");
+		} else {
+			++td.rx_count;
+		}
+	}
+}
 
 int main(int argc, char *argv[])
 {
 	try {
-		Datafile tmp;
-
-		tmp.read_raw("/tmp/queryfile-example-current.raw");
-
-		//tmp.read_txt("/tmp/queryfile-example-current");
-		//tmp.write_raw("/tmp/queryfile-example-current.raw");
-
-#if 0
 		global_data_t		gd;
-		thread_data_t		td1;
 
+		gd.queries.read_raw("/tmp/queryfile-example-current.raw");
 		gd.dest_port = 8053;
-		gd.src_ip = inet_addr("10.1.2.5");
-		gd.dest_ip = inet_addr("10.1.2.1");
-		gd.ifindex = if_nametoindex("enp2s0");
+		gd.src_ip = inet_addr("10.255.255.245");
+		gd.dest_ip = inet_addr("10.255.255.244");
+		gd.start = false;
+		gd.stop = false;
+		gd.ifindex = if_nametoindex("enp5s0f1");
+		if (gd.ifindex == 0) {
+			throw std::system_error(errno, std::system_category(), "if_nametoindex");
+		}
 
-		td1.fd = get_socket(gd.ifindex);
-		std::thread sender_1(sender, std::ref(gd), std::ref(td1));
-		std::thread receiver_1(receiver, std::ref(gd), std::ref(td1));
+		int n = 12;
 
-		sender_1.join();
-		receiver_1.join();
-#endif
+		std::thread sender_thread[n], receiver_thread[n];
+		thread_data_t thread_data[n];
+
+		for (int i = 0; i < n; ++i) {
+			auto& td = thread_data[i];
+
+			td.index = i;
+			td.fd = get_socket(gd.ifindex);
+			td.port_base = 16384 + 4096 * i;
+			td.port_count = 4096;
+			td.tx_count = 0;
+			td.rx_count = 0;
+
+			sender_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
+			receiver_thread[i] = std::thread(receiver, std::ref(gd), std::ref(td));
+
+			cpu_set_t cpu;
+			CPU_ZERO(&cpu);
+			CPU_SET(i, &cpu);
+			pthread_setaffinity_np(sender_thread[i].native_handle(), sizeof(cpu), &cpu);
+			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
+		}
+
+		auto timer = std::thread([&]() {
+			{
+				std::unique_lock<std::mutex> lock(gd.mutex);
+				gd.start = true;
+			}
+			gd.cv.notify_all();
+			sleep(30);
+			gd.stop = true;
+		});
+
+		for (int i = 0; i < n; ++i) {
+			sender_thread[i].join();
+			receiver_thread[i].join();
+		}
+
+		timer.join();
+
+		for (int i = 0; i < n; ++i) {
+			auto& td = thread_data[i];
+			std::cerr << "tx[" << i << "] = " << td.tx_count << std::endl;
+		}
+
+		for (int i = 0; i < n; ++i) {
+			auto& td = thread_data[i];
+			std::cerr << "rx[" << i << "] = " << td.rx_count << std::endl;
+		}
 
 	} catch (std::runtime_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;
