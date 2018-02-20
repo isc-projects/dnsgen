@@ -50,7 +50,7 @@ typedef struct __attribute__((packed)) {
 
 int get_socket(int ifindex)
 {
-	int fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
+	int fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
 	if (fd < 0) {
 		throw std::system_error(errno, std::system_category(), "socket AF_PACKET");
 	}
@@ -178,7 +178,7 @@ void receiver(global_data_t& gd, thread_data_t& td)
 	pollfd fds = { td.fd, POLLIN, 0 };
 
 	while (!gd.stop) {
-		int res = ::poll(&fds, 1, 1);
+		int res = ::poll(&fds, 1, 10);
 		if (res < 0) {			// error
 			if (errno == EAGAIN) continue;
 			throw std::system_error(errno, std::system_category(), "poll");
@@ -237,7 +237,7 @@ int main(int argc, char *argv[])
 			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
 		}
 
-		auto timer = std::thread([&]() {
+		auto timer = std::thread([&gd]() {
 			{
 				std::unique_lock<std::mutex> lock(gd.mutex);
 				gd.start = true;
