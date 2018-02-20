@@ -15,7 +15,7 @@
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 
-#include "datafile.h"
+#include "packet.h"
 
 typedef struct {
 	int				fd;
@@ -33,32 +33,6 @@ typedef struct __attribute__((packed)) {
 	struct iphdr			ip;
 	struct udphdr			udp;
 } header_t;
-
-int get_socket(int ifindex)
-{
-	int fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
-	if (fd < 0) {
-		throw std::system_error(errno, std::system_category(), "socket AF_PACKET");
-	}
-
-	// bind the AF_PACKET socket to the specified interface
-	sockaddr_ll saddr;
-	memset(&saddr, 0, sizeof(saddr));
-	saddr.sll_family = AF_PACKET;
-	saddr.sll_ifindex = ifindex;
-
-	if (bind(fd, reinterpret_cast<sockaddr *>(&saddr), sizeof(saddr)) < 0) {
-		throw std::system_error(errno, std::system_category(), "bind AF_PACKET");
-	}
-
-	// set the AF_PACKET socket's fanout mode
-	uint32_t fanout = (getpid() & 0xffff) | (PACKET_FANOUT_CPU << 16);
-	if (setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout, sizeof fanout) < 0) {
-		throw std::system_error(errno, std::system_category(), "setsockopt PACKET_FANOUT");
-	}
-
-	return fd;
-}
 
 ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 {
