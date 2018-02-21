@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <cerrno>
 #include <cstring>
+#include <ctime>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -132,6 +133,10 @@ void sender(global_data_t& gd, thread_data_t& td)
 			throw std::system_error(errno, std::system_category(), "sendmsg");
 		} else {
 			++td.tx_count;
+			timespec ts;
+			for (int i = 0; i < 6; ++i) {
+				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+			}
 		}
 	}
 }
