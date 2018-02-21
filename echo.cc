@@ -40,10 +40,13 @@ ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 	sockaddr_storage client;
 	socklen_t clientlen = sizeof(client);
 
-	auto len = recvfrom(td.fd, buffer, sizeof buffer, 0,
+	auto len = recvfrom(td.fd, buffer, sizeof buffer, MSG_DONTWAIT,
 			reinterpret_cast<sockaddr *>(&client), &clientlen);
 
 	if (len < 0) {
+		if (errno != EAGAIN) {
+			throw std::system_error(errno, std::system_category(), "recvfrom");
+		}
 		return len;
 	}
 
@@ -79,9 +82,12 @@ void echoer(global_data_t& gd, thread_data_t& td)
 				throw std::system_error(errno, std::system_category(), "poll");
 			}
 
-			res = echo_one(gd, td);
-			if (res < 0) {
-				if (errno == EAGAIN) continue;
+			bool ready = true;
+			while (ready) {
+				res = echo_one(gd, td);
+				if (res < 0) {
+					ready = false;
+				}
 			}
 		}
 	} catch (std::logic_error& e) {

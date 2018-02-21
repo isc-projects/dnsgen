@@ -72,7 +72,7 @@ ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	uint16_t udp_size = payload_size + sizeof(udphdr);
 	uint16_t tot_size = udp_size + sizeof(iphdr);
 
-	header_t h = { 0, };
+	header_t h = { { 0, }};
 
 	h.ip.ihl = 5;		// sizeof(iphdr) / 4
 	h.ip.version = 4;
@@ -111,7 +111,7 @@ ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 void sender(global_data_t& gd, thread_data_t& td)
 {
-	std::array<uint8_t, 6> mac = { 0x3c, 0xfd, 0xfe, 0x03, 0xb6, 0x62 };
+	std::array<uint8_t, 6> mac = { { 0x3c, 0xfd, 0xfe, 0x03, 0xb6, 0x62 } };
 
 	static sockaddr_ll addr = { 0 };
 	addr.sll_family = AF_PACKET;
@@ -142,7 +142,7 @@ ssize_t receive_one(global_data_t& gd, thread_data_t& td)
 	sockaddr_storage client;
 	socklen_t clientlen = sizeof(client);
 
-	auto len = recvfrom(td.fd, buffer, sizeof buffer, 0,
+	auto len = recvfrom(td.fd, buffer, sizeof buffer, MSG_DONTWAIT,
 			reinterpret_cast<sockaddr *>(&client), &clientlen);
 
 	return len;
@@ -161,12 +161,16 @@ void receiver(global_data_t& gd, thread_data_t& td)
 			continue;
 		}
 
-		res = receive_one(gd, td);
-		if (res < 0) {
-			if (errno == EAGAIN) continue;
-			throw std::system_error(errno, std::system_category(), "recvfrom");
-		} else {
-			++td.rx_count;
+		bool ready = true;
+		while (ready) {
+			res = receive_one(gd, td);
+			if (res < 0) {
+				ready = false;
+				if (errno == EAGAIN) break;
+				throw std::system_error(errno, std::system_category(), "recvfrom");
+			} else {
+				++td.rx_count;
+			}
 		}
 	}
 }
@@ -234,10 +238,13 @@ int main(int argc, char *argv[])
 			std::cerr << "tx[" << i << "] = " << td.tx_count << std::endl;
 		}
 
+		uint64_t rx_total = 0;
 		for (int i = 0; i < n; ++i) {
 			auto& td = thread_data[i];
+			rx_total += td.rx_count;
 			std::cerr << "rx[" << i << "] = " << td.rx_count << std::endl;
 		}
+		std::cerr << "rx[total] = " << rx_total << std::endl;
 
 	} catch (std::runtime_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;
