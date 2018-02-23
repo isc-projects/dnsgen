@@ -12,6 +12,8 @@
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+
+#include <linux/version.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 
@@ -120,6 +122,14 @@ int main(int argc, char *argv[])
 			if (td.fd < 0) {
 				throw std::runtime_error("couldn't open socket");
 			}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
+			// bypass the kernel QDISC
+			uint32_t bypass = 0;
+			if (setsockopt(td.fd, SOL_PACKET, PACKET_QDISC_BYPASS, &bypass, sizeof bypass) < 0) {
+				throw std::system_error(errno, std::system_category(), "setsockopt PACKET_QDISC_BYPASS");
+			}
+#endif
 
 			echo_thread[i] = std::thread(echoer, std::ref(gd), std::ref(td));
 
