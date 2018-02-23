@@ -12,6 +12,8 @@
 #include "packet.h"
 #include "util.h"
 
+// TODO: split `socket` call from `bind` call
+
 int socket_open(int ifindex)
 {
 	int fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
