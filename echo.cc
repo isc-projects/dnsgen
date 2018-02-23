@@ -18,6 +18,7 @@
 #include <linux/if_packet.h>
 
 #include "packet.h"
+#include "util.h"
 
 typedef struct {
 	int				fd;
@@ -31,11 +32,6 @@ typedef struct {
 	in_addr_t			dest_ip;
 } global_data_t;
 
-typedef struct __attribute__((packed)) {
-	struct iphdr			ip;
-	struct udphdr			udp;
-} header_t;
-
 ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 {
 	uint8_t buffer[4096];
@@ -47,7 +43,7 @@ ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 
 	if (len < 0) {
 		if (errno != EAGAIN) {
-			throw std::system_error(errno, std::system_category(), "recvfrom");
+			throw_errno("recvfrom");
 		}
 		return len;
 	}
@@ -66,7 +62,7 @@ ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 	len = sendto(td.fd, buffer, len, 0,
 			reinterpret_cast<sockaddr *>(&client), clientlen);
 	if (len < 0 && errno != EAGAIN) {
-		throw std::system_error(errno, std::system_category(), "sendto");
+		throw_errno("sendto");
 	}
 
 	return len;
@@ -81,7 +77,7 @@ void echoer(global_data_t& gd, thread_data_t& td)
 			int res = ::poll(&fds, 1, 1);
 			if (res < 0) {
 				if (errno == EAGAIN) continue;
-				throw std::system_error(errno, std::system_category(), "poll");
+				throw_errno("poll");
 			}
 
 			bool ready = true;
@@ -105,7 +101,7 @@ int main(int argc, char *argv[])
 		gd.dest_port = 8053;
 		gd.ifindex = if_nametoindex("enp5s0f1");
 		if (gd.ifindex == 0) {
-			throw std::system_error(errno, std::system_category(), "if_nametoindex");
+			throw_errno("if_nametoindex");
 		}
 
 		int n = 12;
@@ -118,16 +114,15 @@ int main(int argc, char *argv[])
 			auto& td = thread_data[i];
 
 			td.index = i;
-			td.fd = get_socket(gd.ifindex);
+			td.fd = socket_open(gd.ifindex);
 			if (td.fd < 0) {
 				throw std::runtime_error("couldn't open socket");
 			}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 			// bypass the kernel QDISC
-			uint32_t bypass = 0;
-			if (setsockopt(td.fd, SOL_PACKET, PACKET_QDISC_BYPASS, &bypass, sizeof bypass) < 0) {
-				throw std::system_error(errno, std::system_category(), "setsockopt PACKET_QDISC_BYPASS");
+			if (socket_setopt(td.fd, PACKET_QDISC_BYPASS, 1) < 0) {
+				throw_errno("setsockopt PACKET_QDISC_BYPASS");
 			}
 #endif
 

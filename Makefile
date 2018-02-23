@@ -3,12 +3,14 @@ LDFLAGS		= -lpthread -lresolv
 
 TARGETS		= dnsgen dnsecho
 
+COMMON_OBJS	= packet.o util.o
+
 all:		$(TARGETS)
 
-dnsgen:		main.o datafile.o query.o packet.o
+dnsgen:		main.o datafile.o query.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
-dnsecho:	echo.o packet.o
+dnsecho:	echo.o packet.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
 datafile.o:	ring.h query.h

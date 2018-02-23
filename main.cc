@@ -20,6 +20,7 @@
 
 #include "datafile.h"
 #include "packet.h"
+#include "util.h"
 
 typedef struct {
 	int				fd;
@@ -107,7 +108,11 @@ ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 		nullptr, 0, 0
 	};
 
-	return sendmsg(td.fd, &msg, 0);
+	auto res = sendmsg(td.fd, &msg, 0);
+	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
+		throw_errno("sendmsg");
+	}
+	return res;
 }
 
 void sender(global_data_t& gd, thread_data_t& td)
@@ -130,7 +135,7 @@ void sender(global_data_t& gd, thread_data_t& td)
 	while (!gd.stop) {
 		if (send_one(gd, td, addr) < 0) {
 			if (errno == EAGAIN) continue;
-			throw std::system_error(errno, std::system_category(), "sendmsg");
+			throw_errno("sendmsg");
 		} else {
 			++td.tx_count;
 			timespec ts;
@@ -147,10 +152,14 @@ ssize_t receive_one(global_data_t& gd, thread_data_t& td)
 	sockaddr_storage client;
 	socklen_t clientlen = sizeof(client);
 
-	auto len = recvfrom(td.fd, buffer, sizeof buffer, MSG_DONTWAIT,
+	auto res = recvfrom(td.fd, buffer, sizeof buffer, MSG_DONTWAIT,
 			reinterpret_cast<sockaddr *>(&client), &clientlen);
 
-	return len;
+	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
+		throw_errno("recvfrom");
+	}
+
+	return res;
 }
 
 void receiver(global_data_t& gd, thread_data_t& td)
@@ -161,7 +170,7 @@ void receiver(global_data_t& gd, thread_data_t& td)
 		int res = ::poll(&fds, 1, 10);
 		if (res < 0) {			// error
 			if (errno == EAGAIN) continue;
-			throw std::system_error(errno, std::system_category(), "poll");
+			throw_errno("poll");
 		} else if (res == 0) {		// timeout
 			continue;
 		}
@@ -171,8 +180,6 @@ void receiver(global_data_t& gd, thread_data_t& td)
 			res = receive_one(gd, td);
 			if (res < 0) {
 				ready = false;
-				if (errno == EAGAIN) break;
-				throw std::system_error(errno, std::system_category(), "recvfrom");
 			} else {
 				++td.rx_count;
 			}
@@ -193,7 +200,7 @@ int main(int argc, char *argv[])
 		gd.stop = false;
 		gd.ifindex = if_nametoindex("enp5s0f1");
 		if (gd.ifindex == 0) {
-			throw std::system_error(errno, std::system_category(), "if_nametoindex");
+			throw_errno("if_nametoindex");
 		}
 
 		int n = 12;
@@ -204,8 +211,9 @@ int main(int argc, char *argv[])
 		for (int i = 0; i < n; ++i) {
 			auto& td = thread_data[i];
 
+			memset(&td, 0, sizeof td);
 			td.index = i;
-			td.fd = get_socket(gd.ifindex);
+			td.fd = socket_open(gd.ifindex);
 			td.port_base = 16384 + 4096 * i;
 			td.port_count = 4096;
 			td.tx_count = 0;

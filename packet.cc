@@ -9,11 +9,14 @@
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 
-int get_socket(int ifindex)
+#include "packet.h"
+#include "util.h"
+
+int socket_open(int ifindex)
 {
 	int fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
 	if (fd < 0) {
-		throw std::system_error(errno, std::system_category(), "socket AF_PACKET");
+		throw_errno("socket AF_PACKET");
 	}
 
 	// bind the AF_PACKET socket to the specified interface
@@ -22,14 +25,25 @@ int get_socket(int ifindex)
 	saddr.sll_ifindex = ifindex;
 
 	if (bind(fd, reinterpret_cast<sockaddr *>(&saddr), sizeof(saddr)) < 0) {
-		throw std::system_error(errno, std::system_category(), "bind AF_PACKET");
+		throw_errno("bind AF_PACKET");
 	}
 
 	// set the AF_PACKET socket's fanout mode
 	uint32_t fanout = (getpid() & 0xffff) | (PACKET_FANOUT_CPU << 16);
-	if (setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout, sizeof fanout) < 0) {
-		throw std::system_error(errno, std::system_category(), "setsockopt PACKET_FANOUT");
+	if (socket_setopt(fd, PACKET_FANOUT, fanout) < 0) {
+		throw_errno("setsockopt PACKET_FANOUT");
 	}
 
 	return fd;
+}
+
+int socket_setopt(int fd, int name, const uint32_t val)
+{
+	return setsockopt(fd, SOL_PACKET, name, &val, sizeof val);
+}
+
+int socket_getopt(int fd, int name, uint32_t& val)
+{
+	socklen_t len = sizeof(val);
+	return getsockopt(fd, SOL_PACKET, name, &val, &len);
 }

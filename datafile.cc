@@ -9,12 +9,13 @@
 #include <arpa/inet.h>		// for ntohs() etc
 
 #include "datafile.h"
+#include "util.h"
 
 void Datafile::read_txt(const std::string& filename)
 {
 	std::ifstream file(filename);
 	if (!file) {
-		throw std::system_error(errno, std::system_category(), "opening datafile");
+		throw_errno("opening datafile");
 	}
 
 	Ring<Query>::Storage list;
@@ -27,9 +28,10 @@ void Datafile::read_txt(const std::string& filename)
 		try {
 			list.emplace_back(Query(name, type));
 		} catch (std::runtime_error &e) {
-			std::string error = "reading datafile at line " + std::to_string(line_no)
+			std::string error = "reading datafile at line "
+					+ std::to_string(line_no)
 					+ ": " + e.what();
-			throw std::runtime_error(error);
+			throw_errno(error);
 		}
 	}
 
@@ -43,7 +45,7 @@ void Datafile::read_raw(const std::string& filename)
 {
 	std::ifstream file(filename, std::ifstream::binary);
 	if (!file) {
-		throw std::system_error(errno, std::system_category(), "opening datafile");
+		throw_errno("opening datafile");
 	}
 
 	Ring<Query>::Storage list;
@@ -75,7 +77,7 @@ void Datafile::write_raw(const std::string& filename)
 {
 	std::ofstream file(filename, std::ifstream::binary);
 	if (!file) {
-		throw std::system_error(errno, std::system_category(), "opening datafile");
+		throw_errno("opening datafile");
 	}
 
 	for (size_t i = 0, n = queries.count(); i < n; ++i) {
