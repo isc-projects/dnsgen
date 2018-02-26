@@ -191,6 +191,7 @@ int main(int argc, char *argv[])
 	try {
 		global_data_t		gd;
 
+		gd.ifindex = if_nametoindex("enp5s0f1");
 		gd.queries.read_raw("/tmp/queryfile-example-current.raw");
 		gd.dest_port = 8053;
 		gd.src_ip = inet_addr("10.255.255.245");
@@ -209,7 +210,7 @@ int main(int argc, char *argv[])
 			memset(&td, 0, sizeof td);
 			td.index = i;
 			td.packet.open();
-			td.packet.bind(ifname);
+			td.packet.bind(gd.ifindex);
 
 			td.port_base = 16384 + 4096 * i;
 			td.port_count = 4096;

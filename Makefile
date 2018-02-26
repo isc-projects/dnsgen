@@ -7,10 +7,10 @@ COMMON_OBJS	= packet.o util.o
 
 all:		$(TARGETS)
 
-dnsgen:		main.o datafile.o query.o $(COMMON_OBJS)
+dnsgen:		dnsgen.o datafile.o query.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
-dnsecho:	echo.o packet.o $(COMMON_OBJS)
+dnsecho:	dnsecho.o packet.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS)
 
 datafile.o:	ring.h query.h
