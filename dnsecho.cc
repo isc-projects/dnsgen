@@ -107,8 +107,8 @@ void set_rx_ring(thread_data_t& td)
 	memset(&tp, 0, sizeof(tp));
 	tp.tp_block_size = 4096;
 	tp.tp_frame_size = 2048;
-	tp.tp_block_nr = 4;
-	tp.tp_frame_nr = 8;
+	tp.tp_block_nr = 64;
+	tp.tp_frame_nr = 128;
 
 	td.map = reinterpret_cast<uint8_t*>(td.packet.rx_ring(tp));
 }
