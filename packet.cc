@@ -1,6 +1,6 @@
 #include <iostream>
 #include <stdexcept>
-#include <cerrno>
+#include <algorithm>
 
 #include <unistd.h>
 #include <sys/socket.h>
@@ -10,6 +10,7 @@
 #include <netinet/udp.h>
 
 #include <linux/if_ether.h>
+#include <linux/if_packet.h>
 #include <linux/if.h>
 
 #include "packet.h"
@@ -17,6 +18,11 @@
 
 PacketSocket::~PacketSocket()
 {
+	if (map) {
+		::munmap(map, req.tp_frame_size * req.tp_frame_nr);
+		map = nullptr;
+	}
+
 	if (fd >= 0) {
 		::close(fd);
 	}
@@ -88,18 +94,46 @@ int PacketSocket::poll(int timeout)
 	return res;
 }
 
-void* PacketSocket::rx_ring(const tpacket_req& req)
+void PacketSocket::rx_ring_enable(size_t frame_bits, size_t frame_nr)
 {
-	size_t size = req.tp_block_size * req.tp_block_nr;
+	size_t page_size = sysconf(_SC_PAGESIZE);
+
+	req.tp_frame_nr = frame_nr;
+	req.tp_frame_size = (1 << frame_bits);
+
+	size_t map_size = req.tp_frame_size * req.tp_frame_nr;
+
+	req.tp_block_size = std::max(page_size, size_t(req.tp_frame_size));
+	req.tp_block_nr = map_size / req.tp_block_size;
 
 	if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, &req, sizeof(req)) < 0) {
-		throw_errno("PacketSocket::rx_ring(PACKET_RX_RING)");
+		throw_errno("PacketSocket::rx_ring_enable(PACKET_RX_RING)");
 	}
 
-	void *p = ::mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
+	void *p = ::mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
 	if (p == MAP_FAILED) {
 		throw_errno("mmap");
 	}
 
-	return p;
+	map = reinterpret_cast<uint8_t*>(p);
+
+	ll_offset = TPACKET_ALIGN(sizeof(struct tpacket_hdr));
+}
+
+void PacketSocket::rx_ring_next(PacketSocket::rx_callback_t callback, void *userdata)
+{
+	auto frame = map + rx_current * req.tp_frame_size;
+	auto& hdr = *reinterpret_cast<tpacket_hdr*>(frame);
+
+	if ((hdr.tp_status & TP_STATUS_USER) == 0) {
+		if (poll() == 0) return;
+	}
+
+	auto client = reinterpret_cast<sockaddr_ll *>(frame + ll_offset);
+	auto buf = frame + hdr.tp_net;
+
+	callback(buf, hdr.tp_len, client, userdata);
+
+	hdr.tp_status = TP_STATUS_KERNEL;
+	rx_current = (rx_current + 1) % req.tp_frame_nr;
 }

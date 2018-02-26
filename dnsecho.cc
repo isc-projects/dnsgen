@@ -22,20 +22,22 @@
 
 typedef struct {
 	PacketSocket			packet;
-	tpacket_req			tp;
-	uint8_t*			map;
+	uint64_t			poll_count = 0;
+	uint64_t			rx_count = 0;
 } thread_data_t;
 
 typedef struct {
 	uint16_t			dest_port;
-	in_addr_t			src_ip;
-	in_addr_t			dest_ip;
 } global_data_t;
 
-ssize_t do_echo(global_data_t& gd, thread_data_t& td,
-		uint8_t *buffer, size_t len,
-		const sockaddr_ll *client, socklen_t clientlen)
+global_data_t gd;
+
+ssize_t do_echo(uint8_t *buffer, size_t buflen,
+		const sockaddr_ll *addr,
+		void *userdata)
 {
+	auto& td = *reinterpret_cast<thread_data_t*>(userdata);
+
 	auto& ip = *reinterpret_cast<iphdr *>(buffer);
 	auto& udp = *reinterpret_cast<udphdr *>(buffer + 4 * ip.ihl);
 
@@ -46,7 +48,8 @@ ssize_t do_echo(global_data_t& gd, thread_data_t& td,
 	std::swap(ip.saddr, ip.daddr);
 	std::swap(udp.source, udp.dest);
 
-	auto res = sendto(td.packet.fd, buffer, len, MSG_DONTWAIT, reinterpret_cast<const sockaddr *>(client), clientlen);
+	auto res = sendto(td.packet.fd, buffer, buflen, MSG_DONTWAIT,
+			reinterpret_cast<const sockaddr *>(addr), sizeof(*addr));
 	if (res < 0 && errno != EAGAIN) {
 		throw_errno("sendto");
 	}
@@ -54,7 +57,7 @@ ssize_t do_echo(global_data_t& gd, thread_data_t& td,
 	return res;
 }
 
-ssize_t echo_one(global_data_t& gd, thread_data_t& td)
+ssize_t echo_one(thread_data_t& td)
 {
 	uint8_t buffer[4096];
 	sockaddr_ll client;
@@ -70,18 +73,17 @@ ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 		return len;
 	}
 
-	clientlen = sizeof(client);
-	return do_echo(gd, td, buffer, len, &client, clientlen);
+	return do_echo(buffer, len, &client, &td);
 }
 
-void echo_normal(global_data_t& gd, thread_data_t& td)
+void echo_normal(thread_data_t& td)
 {
 	try {
 		while (true) {
 			if (td.packet.poll(1) <= 0) continue;
 
 			while (true) {
-				if (echo_one(gd, td) <= 0) break;
+				if (echo_one(td) <= 0) break;
 			}
 		}
 	} catch (std::logic_error& e) {
@@ -89,42 +91,12 @@ void echo_normal(global_data_t& gd, thread_data_t& td)
 	}
 }
 
-void set_rx_ring(thread_data_t& td)
+void echo_rx_ring(thread_data_t& td)
 {
-	auto& tp = td.tp;
-
-	memset(&tp, 0, sizeof(tp));
-	tp.tp_block_size = 4096;
-	tp.tp_frame_size = 2048;
-	tp.tp_block_nr = 64;
-	tp.tp_frame_nr = 128;
-
-	td.map = reinterpret_cast<uint8_t*>(td.packet.rx_ring(tp));
-}
-
-void echo_rx_ring(global_data_t& gd, thread_data_t& td)
-{
-	// enable PACKET_RX_RING / MMAP mode
-	set_rx_ring(td);
-
 	try {
-		ptrdiff_t ll_offset = TPACKET_ALIGN(sizeof(struct tpacket_hdr));
-		int current = 0;
-
+		td.packet.rx_ring_enable(11, 128);	// frame size = 2048 
 		while (true) {
-			auto fp = td.map + current * td.tp.tp_frame_size;
-			auto& hdr = *reinterpret_cast<tpacket_hdr*>(fp);
-
-			if ((hdr.tp_status & TP_STATUS_USER) == 0) {
-				if (td.packet.poll() <= 0) continue;
-			}
-
-			auto& client = *reinterpret_cast<sockaddr_ll *>(fp + ll_offset);
-			auto buf = (fp + hdr.tp_net);
-
-			do_echo(gd, td, buf, hdr.tp_len, &client, sizeof(sockaddr_ll));
-			hdr.tp_status = TP_STATUS_KERNEL;
-			current = (current + 1) % td.tp.tp_frame_nr;
+			td.packet.rx_ring_next(do_echo, &td);
 		}
 	} catch (std::logic_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;
@@ -138,8 +110,6 @@ int main(int argc, char *argv[])
 	const unsigned int	threads = 12;
 
 	try {
-		global_data_t		gd;
-
 		gd.dest_port = port;
 
 		std::thread echo_thread[threads];
@@ -152,7 +122,7 @@ int main(int argc, char *argv[])
 			td.packet.open();
 			td.packet.bind(ifname);
 
-			echo_thread[i] = std::thread(echo_rx_ring, std::ref(gd), std::ref(td));
+			echo_thread[i] = std::thread(echo_rx_ring, std::ref(td));
 
 			cpu_set_t cpu;
 			CPU_ZERO(&cpu);

@@ -1,4 +1,4 @@
-CXXFLAGS	= -O0 -g -std=c++11 -Wall -Werror
+CXXFLAGS	= -Og -g -std=c++11 -Wall -Werror
 LDFLAGS		= -lpthread -lresolv
 
 TARGETS		= dnsgen dnsecho
