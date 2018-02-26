@@ -28,6 +28,8 @@ void PacketSocket::open()
 	if (fd < 0) {
 		throw_errno("socket(AF_PACKET, SOCK_DGRAM)");
 	}
+
+	pfd = { fd, POLLIN, 0 };
 }
 
 void PacketSocket::close()
@@ -73,8 +75,17 @@ void PacketSocket::bind(const std::string& ifname)
 	if (index == 0) {
 		throw_errno("if_nametoindex");
 	}
+	bind(index);
+}
 
-	this->bind(index);
+int PacketSocket::poll(int timeout)
+{
+	int res = ::poll(&pfd, 1, timeout);
+	if (res < 0) {
+		throw_errno("poll");
+	}
+
+	return res;
 }
 
 void* PacketSocket::rx_ring(const tpacket_req& req)

@@ -5,7 +5,6 @@
 #include <thread>
 
 #include <unistd.h>
-#include <poll.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -77,22 +76,12 @@ ssize_t echo_one(global_data_t& gd, thread_data_t& td)
 
 void echo_normal(global_data_t& gd, thread_data_t& td)
 {
-	pollfd fds = { td.packet.fd, POLLIN, 0 };
-
 	try {
 		while (true) {
-			int res = ::poll(&fds, 1, 1);
-			if (res < 0) {
-				if (errno == EAGAIN) continue;
-				throw_errno("poll");
-			}
+			if (td.packet.poll(1) <= 0) continue;
 
-			bool ready = true;
-			while (ready) {
-				res = echo_one(gd, td);
-				if (res < 0) {
-					ready = false;
-				}
+			while (true) {
+				if (echo_one(gd, td) <= 0) break;
 			}
 		}
 	} catch (std::logic_error& e) {
@@ -120,7 +109,6 @@ void echo_rx_ring(global_data_t& gd, thread_data_t& td)
 
 	try {
 		ptrdiff_t ll_offset = TPACKET_ALIGN(sizeof(struct tpacket_hdr));
-		pollfd fds = { td.packet.fd, POLLIN, 0 };
 		int current = 0;
 
 		while (true) {
@@ -128,12 +116,7 @@ void echo_rx_ring(global_data_t& gd, thread_data_t& td)
 			auto& hdr = *reinterpret_cast<tpacket_hdr*>(fp);
 
 			if ((hdr.tp_status & TP_STATUS_USER) == 0) {
-				int res = ::poll(&fds, 1, -1);
-				if (res < 0) {
-					if (errno == EAGAIN) continue;
-					throw_errno("poll");
-				}
-				continue;
+				if (td.packet.poll() <= 0) continue;
 			}
 
 			auto& client = *reinterpret_cast<sockaddr_ll *>(fp + ll_offset);

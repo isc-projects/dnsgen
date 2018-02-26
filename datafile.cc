@@ -18,7 +18,7 @@ void Datafile::read_txt(const std::string& filename)
 		throw_errno("opening datafile");
 	}
 
-	Ring<Query>::Storage list;
+	storage_t list;
 	std::string name, type;
 	size_t line_no = 0;
 
@@ -38,7 +38,7 @@ void Datafile::read_txt(const std::string& filename)
 	file.close();
 
 	std::cout << "data file loaded with " << std::to_string(list.size()) << " queries" << std::endl;
-	queries.assign(list);
+	std::swap(queries, list);
 }
 
 void Datafile::read_raw(const std::string& filename)
@@ -48,7 +48,7 @@ void Datafile::read_raw(const std::string& filename)
 		throw_errno("opening datafile");
 	}
 
-	Ring<Query>::Storage list;
+	storage_t list;
 	Query::Buffer buffer;
 	uint16_t len;
 
@@ -70,7 +70,7 @@ void Datafile::read_raw(const std::string& filename)
 	file.close();
 
 	std::cout << "raw data file loaded with " << std::to_string(list.size()) << " queries" << std::endl;
-	queries.assign(list);
+	std::swap(queries, list);
 }
 
 void Datafile::write_raw(const std::string& filename)
@@ -80,10 +80,8 @@ void Datafile::write_raw(const std::string& filename)
 		throw_errno("opening datafile");
 	}
 
-	for (size_t i = 0, n = queries.count(); i < n; ++i) {
-		const auto& query = queries.next();
+	for (const auto& query: queries) {
 		uint16_t len = htons(query.size());	// big-endian
-
 		file.write(reinterpret_cast<const char*>(&len), sizeof(len));
 		file.write(reinterpret_cast<const char*>(query.data()), query.size());
 	}

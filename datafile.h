@@ -2,14 +2,16 @@
 #define __datafile_h
 
 #include <string>
-
-#include "ring.h"
+#include <deque>
 #include "query.h"
 
 class Datafile {
 
+public:
+	typedef std::deque<Query>	storage_t;
+
 private:
-	Ring<Query>			queries;
+	storage_t			queries;
 
 public:
 	void				read_txt(const std::string& filename);
@@ -18,8 +20,12 @@ public:
 
 public:
 
-	const Query&		next() {
-		return queries.next();
+	const Query&			operator[](size_t n) const {
+		return queries[n];
+	};
+
+	size_t				size() const {
+		return queries.size();
 	};
 };
 

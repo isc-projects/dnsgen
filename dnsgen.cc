@@ -4,11 +4,11 @@
 #include <cstring>
 #include <ctime>
 #include <thread>
+#include <atomic>
 #include <mutex>
 #include <condition_variable>
 
 #include <unistd.h>
-#include <poll.h>
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <netinet/ip.h>
@@ -29,14 +29,17 @@ typedef struct {
 	uint16_t			query_id;
 	uint64_t			tx_count;
 	uint64_t			rx_count;
+	size_t				query_num;
 } thread_data_t;
 
 typedef struct {
+	int				thread_count;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
-	Datafile			queries;
+	Datafile			query;
+	size_t				query_count;
 	std::atomic<bool>		stop;
 	bool				start;
 	std::mutex			mutex;
@@ -65,7 +68,11 @@ static uint16_t checksum(const iphdr& hdr)
 
 ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
-	auto query = gd.queries.next();
+	auto query = gd.query[td.query_num];
+	td.query_num += gd.thread_count;
+	if (td.query_num > gd.query_count) {
+		td.query_num -= gd.query_count;
+	}
 
 	uint16_t payload_size = query.size();
 	uint16_t udp_size = payload_size + sizeof(udphdr);
@@ -135,10 +142,10 @@ void sender(global_data_t& gd, thread_data_t& td)
 			throw_errno("sendmsg");
 		} else {
 			++td.tx_count;
-			timespec ts;
-			for (int i = 0; i < 6; ++i) {
-				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-			}
+//			timespec ts;
+//			for (int i = 0; i < 3; ++i) {
+//				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+//			}
 		}
 	}
 }
@@ -161,16 +168,9 @@ ssize_t receive_one(global_data_t& gd, thread_data_t& td)
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
-	pollfd fds = { td.packet.fd, POLLIN, 0 };
-
 	while (!gd.stop) {
-		int res = ::poll(&fds, 1, 10);
-		if (res < 0) {			// error
-			if (errno == EAGAIN) continue;
-			throw_errno("poll");
-		} else if (res == 0) {		// timeout
-			continue;
-		}
+		int res = td.packet.poll(10);
+		if (res == 0) continue;		// timeout
 
 		bool ready = true;
 		while (ready) {
@@ -192,14 +192,16 @@ int main(int argc, char *argv[])
 		global_data_t		gd;
 
 		gd.ifindex = if_nametoindex("enp5s0f1");
-		gd.queries.read_raw("/tmp/queryfile-example-current.raw");
+		gd.query.read_raw("/tmp/queryfile-example-current.raw");
+		gd.query_count = gd.query.size();
 		gd.dest_port = 8053;
 		gd.src_ip = inet_addr("10.255.255.245");
 		gd.dest_ip = inet_addr("10.255.255.244");
 		gd.start = false;
 		gd.stop = false;
+		gd.thread_count = 12;
 
-		int n = 12;
+		int n = gd.thread_count;
 
 		std::thread sender_thread[n], receiver_thread[n];
 		thread_data_t thread_data[n];
@@ -212,8 +214,8 @@ int main(int argc, char *argv[])
 			td.packet.open();
 			td.packet.bind(gd.ifindex);
 
-			td.port_base = 16384 + 4096 * i;
 			td.port_count = 4096;
+			td.port_base = 16384 + td.port_count * i;
 			td.tx_count = 0;
 			td.rx_count = 0;
 
