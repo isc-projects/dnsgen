@@ -142,45 +142,26 @@ void sender(global_data_t& gd, thread_data_t& td)
 			throw_errno("sendmsg");
 		} else {
 			++td.tx_count;
-//			timespec ts;
-//			for (int i = 0; i < 3; ++i) {
-//				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-//			}
+			timespec ts;
+			for (int i = 0; i < 0; ++i) {
+				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+			}
 		}
 	}
 }
 
-ssize_t receive_one(global_data_t& gd, thread_data_t& td)
+ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, void *userdata)
 {
-	uint8_t buffer[4096];
-	sockaddr_storage client;
-	socklen_t clientlen = sizeof(client);
-
-	auto res = recvfrom(td.packet.fd, buffer, sizeof buffer, MSG_DONTWAIT,
-			reinterpret_cast<sockaddr *>(&client), &clientlen);
-
-	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
-		throw_errno("recvfrom");
-	}
-
-	return res;
+	auto &td = *reinterpret_cast<thread_data_t*>(userdata);
+	++td.rx_count;
+	return 0;
 }
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
+	td.packet.rx_ring_enable(11, 128);	// frame size = 2048
 	while (!gd.stop) {
-		int res = td.packet.poll(10);
-		if (res == 0) continue;		// timeout
-
-		bool ready = true;
-		while (ready) {
-			res = receive_one(gd, td);
-			if (res < 0) {
-				ready = false;
-			} else {
-				++td.rx_count;
-			}
-		}
+		td.packet.rx_ring_next(receive_one, 10, &td);
 	}
 }
 
@@ -226,6 +207,9 @@ int main(int argc, char *argv[])
 			CPU_ZERO(&cpu);
 			CPU_SET(i, &cpu);
 			pthread_setaffinity_np(sender_thread[i].native_handle(), sizeof(cpu), &cpu);
+
+			CPU_ZERO(&cpu);
+			CPU_SET(i, &cpu);
 			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
 		}
 

@@ -36,7 +36,7 @@ public:
 	int		getopt(int optname, uint32_t& val);
 
 	void		rx_ring_enable(size_t frame_bits, size_t frame_nr);
-	void		rx_ring_next(rx_callback_t cb, void *userdata);
+	void		rx_ring_next(rx_callback_t cb, int timeout = -1, void *userdata = nullptr);
 };
 
 #endif // __packet_h

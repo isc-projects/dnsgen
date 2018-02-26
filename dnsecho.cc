@@ -96,7 +96,7 @@ void echo_rx_ring(thread_data_t& td)
 	try {
 		td.packet.rx_ring_enable(11, 128);	// frame size = 2048 
 		while (true) {
-			td.packet.rx_ring_next(do_echo, &td);
+			td.packet.rx_ring_next(do_echo, -1, &td);
 		}
 	} catch (std::logic_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;

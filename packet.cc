@@ -120,13 +120,13 @@ void PacketSocket::rx_ring_enable(size_t frame_bits, size_t frame_nr)
 	ll_offset = TPACKET_ALIGN(sizeof(struct tpacket_hdr));
 }
 
-void PacketSocket::rx_ring_next(PacketSocket::rx_callback_t callback, void *userdata)
+void PacketSocket::rx_ring_next(PacketSocket::rx_callback_t callback, int timeout, void *userdata)
 {
 	auto frame = map + rx_current * req.tp_frame_size;
 	auto& hdr = *reinterpret_cast<tpacket_hdr*>(frame);
 
 	if ((hdr.tp_status & TP_STATUS_USER) == 0) {
-		if (poll() == 0) return;
+		if (poll(timeout) == 0) return;
 	}
 
 	auto client = reinterpret_cast<sockaddr_ll *>(frame + ll_offset);
