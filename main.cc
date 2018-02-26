@@ -10,20 +10,17 @@
 #include <unistd.h>
 #include <poll.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
 #include <net/if.h>
-#include <linux/if_ether.h>
-#include <linux/if_packet.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#include <linux/if_ether.h>
 
 #include "datafile.h"
 #include "packet.h"
 #include "util.h"
 
 typedef struct {
-	int				fd;
+	PacketSocket			packet;
 	uint16_t			index;
 	uint16_t			port_base;
 	uint16_t			port_count;
@@ -108,7 +105,7 @@ ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 		nullptr, 0, 0
 	};
 
-	auto res = sendmsg(td.fd, &msg, 0);
+	auto res = sendmsg(td.packet.fd, &msg, 0);
 	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
 		throw_errno("sendmsg");
 	}
@@ -152,7 +149,7 @@ ssize_t receive_one(global_data_t& gd, thread_data_t& td)
 	sockaddr_storage client;
 	socklen_t clientlen = sizeof(client);
 
-	auto res = recvfrom(td.fd, buffer, sizeof buffer, MSG_DONTWAIT,
+	auto res = recvfrom(td.packet.fd, buffer, sizeof buffer, MSG_DONTWAIT,
 			reinterpret_cast<sockaddr *>(&client), &clientlen);
 
 	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -164,7 +161,7 @@ ssize_t receive_one(global_data_t& gd, thread_data_t& td)
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
-	pollfd fds = { td.fd, POLLIN, 0 };
+	pollfd fds = { td.packet.fd, POLLIN, 0 };
 
 	while (!gd.stop) {
 		int res = ::poll(&fds, 1, 10);
@@ -189,6 +186,8 @@ void receiver(global_data_t& gd, thread_data_t& td)
 
 int main(int argc, char *argv[])
 {
+	const std::string ifname = "enp5s0f1";
+
 	try {
 		global_data_t		gd;
 
@@ -198,10 +197,6 @@ int main(int argc, char *argv[])
 		gd.dest_ip = inet_addr("10.255.255.244");
 		gd.start = false;
 		gd.stop = false;
-		gd.ifindex = if_nametoindex("enp5s0f1");
-		if (gd.ifindex == 0) {
-			throw_errno("if_nametoindex");
-		}
 
 		int n = 12;
 
@@ -213,7 +208,9 @@ int main(int argc, char *argv[])
 
 			memset(&td, 0, sizeof td);
 			td.index = i;
-			td.fd = socket_open(gd.ifindex);
+			td.packet.open();
+			td.packet.bind(ifname);
+
 			td.port_base = 16384 + 4096 * i;
 			td.port_count = 4096;
 			td.tx_count = 0;
