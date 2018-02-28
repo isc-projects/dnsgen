@@ -34,12 +34,15 @@ typedef struct {
 
 typedef struct {
 	int				thread_count;
+	size_t				batch_size = 250;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
 	Datafile			query;
 	size_t				query_count;
+	uint64_t			adjust;
+	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
 	std::mutex			mutex;
@@ -50,6 +53,7 @@ typedef struct __attribute__((packed)) {
 	struct iphdr			ip;
 	struct udphdr			udp;
 } header_t;
+
 
 static uint16_t checksum(const iphdr& hdr)
 {
@@ -66,57 +70,78 @@ static uint16_t checksum(const iphdr& hdr)
 	return static_cast<uint16_t>(~sum);
 }
 
-ssize_t send_one(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
+ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
-	auto query = gd.query[td.query_num];
-	td.query_num += gd.thread_count;
-	if (td.query_num > gd.query_count) {
-		td.query_num -= gd.query_count;
-	}
+	const auto n = gd.batch_size;
+	mmsghdr msgs[n];
+	header_t header[n];
+	iovec iovecs[n * 2];
 
-	uint16_t payload_size = query.size();
-	uint16_t udp_size = payload_size + sizeof(udphdr);
-	uint16_t tot_size = udp_size + sizeof(iphdr);
+	for (size_t i = 0; i < n; ++i) {
 
-	header_t h = { { 0, }};
+		// get next n'th query from the data file
+		auto query = gd.query[td.query_num];
+		td.query_num += gd.thread_count;
+		if (td.query_num > gd.query_count) {
+			td.query_num -= gd.query_count;
+		}
 
-	h.ip.ihl = 5;		// sizeof(iphdr) / 4
-	h.ip.version = 4;
-	h.ip.ttl = 8;
-	h.ip.protocol = IPPROTO_UDP;
-	h.ip.id = htons(td.ip_id++);
-	h.ip.saddr = gd.src_ip;
-	h.ip.daddr = gd.dest_ip;
-	h.ip.tot_len = htons(tot_size);
-	h.ip.check = htons(checksum(h.ip));
+		auto& hdr = msgs[i].msg_hdr;
+		auto& pkt = header[i];
 
-	td.port_offset = (td.port_offset + 1) % td.port_count;
-
-	h.udp.source = htons(td.port_base + td.port_offset);
-	h.udp.dest = htons(gd.dest_port);
-	h.udp.len = htons(udp_size);
-
-	iovec iov[2] = {
-		{
-			reinterpret_cast<char *>(&h),
-			sizeof(h)
-		},
-		{
+		int vn = i * 2;		// two iovecs per message
+		iovecs[vn] =  {
+			reinterpret_cast<char *>(&pkt),
+			sizeof(pkt)
+		};
+		iovecs[vn + 1] = {
 			const_cast<char *>(reinterpret_cast<const char *>(query.data())),
 			query.size()
-		}
-	};
+		};
 
-	msghdr msg = {
-		reinterpret_cast<void *>(&addr), sizeof(addr), iov, 2,
-		nullptr, 0, 0
-	};
+		// fill out msghdr
+		memset(&hdr, 0, sizeof(hdr));
+		hdr.msg_iov = &iovecs[vn];
+		hdr.msg_iovlen = 2;
+		hdr.msg_name = reinterpret_cast<void *>(&addr);
+		hdr.msg_namelen = sizeof(addr);
 
-	auto res = sendmsg(td.packet.fd, &msg, 0);
-	if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
-		throw_errno("sendmsg");
+		// calculate header and message lengths
+		uint16_t payload_size = query.size();
+		uint16_t udp_size = payload_size + sizeof(udphdr);
+		uint16_t tot_size = udp_size + sizeof(iphdr);
+
+		// fill out IP header
+		memset(&pkt, 0, sizeof(pkt));
+		pkt.ip.ihl = 5;		// sizeof(iphdr) / 4
+		pkt.ip.version = 4;
+		pkt.ip.ttl = 8;
+		pkt.ip.protocol = IPPROTO_UDP;
+		pkt.ip.id = htons(td.ip_id++);
+		pkt.ip.saddr = gd.src_ip;
+		pkt.ip.daddr = gd.dest_ip;
+		pkt.ip.tot_len = htons(tot_size);
+		pkt.ip.check = htons(checksum(pkt.ip));
+
+		// fill out UDP header
+		pkt.udp.source = htons(td.port_base + td.port_offset);
+		pkt.udp.dest = htons(gd.dest_port);
+		pkt.udp.len = htons(udp_size);
+
+		td.port_offset = (td.port_offset + 1) % td.port_count;
 	}
-	return res;
+
+	size_t offset = 0;
+
+	while (offset < n)  {
+		auto res = sendmmsg(td.packet.fd, &msgs[offset], n - offset, 0);
+		if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
+			throw_errno("sendmmsg");
+		}
+		offset += res;
+	}
+
+	return offset;
 }
 
 void sender(global_data_t& gd, thread_data_t& td)
@@ -136,16 +161,30 @@ void sender(global_data_t& gd, thread_data_t& td)
 		while (!gd.start) gd.cv.wait(lock);
 	}
 
+	timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
 	while (!gd.stop) {
-		if (send_one(gd, td, addr) < 0) {
+
+		auto res = send_many(gd, td, addr);
+		if (res	< 0) {
 			if (errno == EAGAIN) continue;
 			throw_errno("sendmsg");
 		} else {
-			++td.tx_count;
-			timespec ts;
-			for (int i = 0; i < 0; ++i) {
-				(void) clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+			td.tx_count += res;
+
+			// artificial delay
+			timespec next = now;
+
+			next.tv_nsec += 1e9 * gd.batch_size * gd.thread_count / gd.rate;
+			next.tv_nsec -= gd.adjust;
+			if (next.tv_nsec >= 1e9) {
+				next.tv_sec += 1;
+				next.tv_nsec -= 1e9;
 			}
+
+			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
+			clock_gettime(CLOCK_MONOTONIC, &now);
 		}
 	}
 }
@@ -159,10 +198,26 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
-	td.packet.rx_ring_enable(11, 128);	// frame size = 2048
+	td.packet.rx_ring_enable(11, 1024);	// frame size = 2048
 	while (!gd.stop) {
 		td.packet.rx_ring_next(receive_one, 10, &td);
 	}
+}
+
+uint64_t calibrate_clock()
+{
+	timespec start, end, now;
+	const int iterations = 10000;
+
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	for (int i = 0; i < iterations; ++i) {
+		clock_gettime(CLOCK_MONOTONIC, &now);
+	}
+	clock_gettime(CLOCK_MONOTONIC, &end);
+
+	uint64_t delta = 1e9 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+
+	return delta / iterations;
 }
 
 int main(int argc, char *argv[])
@@ -171,6 +226,8 @@ int main(int argc, char *argv[])
 
 	try {
 		global_data_t		gd;
+
+		gd.adjust = calibrate_clock();
 
 		gd.ifindex = if_nametoindex("enp5s0f1");
 		gd.query.read_raw("/tmp/queryfile-example-current.raw");
@@ -181,7 +238,7 @@ int main(int argc, char *argv[])
 		gd.start = false;
 		gd.stop = false;
 		gd.thread_count = 12;
-
+		gd.rate = 5e5;
 		int n = gd.thread_count;
 
 		std::thread sender_thread[n], receiver_thread[n];
@@ -230,12 +287,15 @@ int main(int argc, char *argv[])
 
 		timer.join();
 
+		uint64_t tx_total = 0, rx_total = 0;
+
 		for (int i = 0; i < n; ++i) {
 			auto& td = thread_data[i];
+			tx_total += td.tx_count;
 			std::cerr << "tx[" << i << "] = " << td.tx_count << std::endl;
 		}
+		std::cerr << "tx[total] = " << tx_total << std::endl;
 
-		uint64_t rx_total = 0;
 		for (int i = 0; i < n; ++i) {
 			auto& td = thread_data[i];
 			rx_total += td.rx_count;
