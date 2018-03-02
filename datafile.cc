@@ -37,7 +37,6 @@ void Datafile::read_txt(const std::string& filename)
 
 	file.close();
 
-	std::cout << "data file loaded with " << std::to_string(list.size()) << " queries" << std::endl;
 	std::swap(queries, list);
 }
 
@@ -69,7 +68,6 @@ void Datafile::read_raw(const std::string& filename)
 
 	file.close();
 
-	std::cout << "raw data file loaded with " << std::to_string(list.size()) << " queries" << std::endl;
 	std::swap(queries, list);
 }
 

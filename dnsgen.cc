@@ -1,8 +1,11 @@
 #include <iostream>
+#include <iomanip>
 #include <stdexcept>
 #include <cerrno>
 #include <cstring>
 #include <ctime>
+#include <queue>
+#include <numeric>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -17,6 +20,7 @@
 
 #include "datafile.h"
 #include "packet.h"
+#include "timespec.h"
 #include "util.h"
 
 typedef struct {
@@ -34,14 +38,14 @@ typedef struct {
 
 typedef struct {
 	int				thread_count;
-	size_t				batch_size = 250;
+	size_t				batch_size = 64;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
 	Datafile			query;
 	size_t				query_count;
-	uint64_t			adjust;
+	std::atomic<uint32_t>		rx_count;
 	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
@@ -53,7 +57,6 @@ typedef struct __attribute__((packed)) {
 	struct iphdr			ip;
 	struct udphdr			udp;
 } header_t;
-
 
 static uint16_t checksum(const iphdr& hdr)
 {
@@ -162,6 +165,7 @@ void sender(global_data_t& gd, thread_data_t& td)
 	}
 
 	timespec now;
+	timespec error = { 0, 0 };
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
 	while (!gd.stop) {
@@ -174,17 +178,12 @@ void sender(global_data_t& gd, thread_data_t& td)
 			td.tx_count += res;
 
 			// artificial delay
-			timespec next = now;
+			uint64_t delta = 1e9 * gd.batch_size * gd.thread_count / gd.rate;
 
-			next.tv_nsec += 1e9 * gd.batch_size * gd.thread_count / gd.rate;
-			next.tv_nsec -= gd.adjust;
-			if (next.tv_nsec >= 1e9) {
-				next.tv_sec += 1;
-				next.tv_nsec -= 1e9;
-			}
-
+			timespec next = now + delta - error;
 			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
 			clock_gettime(CLOCK_MONOTONIC, &now);
+			error = now - next;
 		}
 	}
 }
@@ -198,22 +197,80 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
-	td.packet.rx_ring_enable(11, 1024);	// frame size = 2048
+	td.packet.rx_ring_enable(11, 1024);	// frame size = 1 << 11 = 2048
 	while (!gd.stop) {
-		td.packet.rx_ring_next(receive_one, 10, &td);
+		if (td.packet.rx_ring_next(receive_one, 10, &td)) {
+			++gd.rx_count;
+		}
 	}
+}
+
+void rate_adapter(global_data_t& gd)
+{
+	const uint64_t interval = 1e8;
+	const int qsize = 10;
+
+	std::deque<uint32_t>	rates;
+
+	// wait for start condition
+	{
+		std::unique_lock<std::mutex> lock(gd.mutex);
+		while (!gd.start) gd.cv.wait(lock);
+	}
+
+	timespec now;
+	timespec error = { 0, 0 };
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	uint32_t rx_max = 0;
+
+	do {
+		timespec next = now + interval - error;
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		error = now - next;
+
+		// accumulate 'n' readings
+		rates.push_back(gd.rx_count);
+		if (rates.size() > qsize) {
+			rates.pop_front();
+		}
+
+		auto rx_average = std::accumulate(rates.cbegin(), rates.cend(), 0U) / rates.size();
+
+		// rate = count / time
+		uint32_t rx_rate = 1e9 * rx_average / interval;
+		uint32_t tx_rate = gd.rate;
+
+		rx_max = std::max(rx_rate, rx_max);
+		tx_rate = rx_max + 100000;
+
+		// std::cerr << rx_rate << " " << tx_rate << " " << gd.rate << std::endl;
+
+		gd.rate = tx_rate;
+		gd.rx_count = 0;
+
+	} while (!gd.stop);
+
+	std::cerr << "Peak RX rate = " << rx_max << std::endl;
 }
 
 uint64_t calibrate_clock()
 {
-	timespec start, end, now;
+	timespec res, start, end, now;
+	const clockid_t clock_id = CLOCK_MONOTONIC;
 	const int iterations = 10000;
 
-	clock_gettime(CLOCK_MONOTONIC, &start);
-	for (int i = 0; i < iterations; ++i) {
-		clock_gettime(CLOCK_MONOTONIC, &now);
+	{
+		clock_getres(clock_id, &res);
+		std::cerr << "clock res = " << res << std::endl;
 	}
-	clock_gettime(CLOCK_MONOTONIC, &end);
+
+	clock_gettime(clock_id, &start);
+	for (int i = 0; i < iterations; ++i) {
+		clock_gettime(clock_id, &now);
+	}
+	clock_gettime(clock_id, &end);
 
 	uint64_t delta = 1e9 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
 
@@ -227,8 +284,6 @@ int main(int argc, char *argv[])
 	try {
 		global_data_t		gd;
 
-		gd.adjust = calibrate_clock();
-
 		gd.ifindex = if_nametoindex("enp5s0f1");
 		gd.query.read_raw("/tmp/queryfile-example-current.raw");
 		gd.query_count = gd.query.size();
@@ -238,7 +293,7 @@ int main(int argc, char *argv[])
 		gd.start = false;
 		gd.stop = false;
 		gd.thread_count = 12;
-		gd.rate = 5e5;
+		gd.rate = 1e6;
 		int n = gd.thread_count;
 
 		std::thread sender_thread[n], receiver_thread[n];
@@ -270,6 +325,8 @@ int main(int argc, char *argv[])
 			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
 		}
 
+		auto rate = std::thread(rate_adapter, std::ref(gd));
+
 		auto timer = std::thread([&gd]() {
 			{
 				std::unique_lock<std::mutex> lock(gd.mutex);
@@ -286,22 +343,7 @@ int main(int argc, char *argv[])
 		}
 
 		timer.join();
-
-		uint64_t tx_total = 0, rx_total = 0;
-
-		for (int i = 0; i < n; ++i) {
-			auto& td = thread_data[i];
-			tx_total += td.tx_count;
-			std::cerr << "tx[" << i << "] = " << td.tx_count << std::endl;
-		}
-		std::cerr << "tx[total] = " << tx_total << std::endl;
-
-		for (int i = 0; i < n; ++i) {
-			auto& td = thread_data[i];
-			rx_total += td.rx_count;
-			std::cerr << "rx[" << i << "] = " << td.rx_count << std::endl;
-		}
-		std::cerr << "rx[total] = " << rx_total << std::endl;
+		rate.join();
 
 	} catch (std::runtime_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;

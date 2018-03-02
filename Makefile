@@ -3,7 +3,7 @@ LDFLAGS		= -lpthread -lresolv
 
 TARGETS		= dnsgen dnsecho
 
-COMMON_OBJS	= packet.o util.o
+COMMON_OBJS	= packet.o timespec.o util.o
 
 all:		$(TARGETS)
 
