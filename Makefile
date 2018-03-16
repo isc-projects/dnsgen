@@ -6,7 +6,7 @@ LIBS_DNS	= -lresolv
 LIBS_THREAD	= -lpthread
 LIBS_CURSES	= -lncurses++ -lncurses
 
-TARGETS		= dnsgen dnsecho ethq
+TARGETS		= dnsgen dnsecho dnscvt ethq
 
 COMMON_OBJS	= packet.o timespec.o util.o
 
@@ -17,6 +17,9 @@ dnsgen:		dnsgen.o datafile.o query.o $(COMMON_OBJS)
 
 dnsecho:	dnsecho.o packet.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_THREAD)
+
+dnscvt:		dnscvt.o datafile.o query.o $(COMMON_OBJS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_DNS) $(LIBS_THREAD)
 
 ethq:		ethq.o ethtool++.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_CURSES)

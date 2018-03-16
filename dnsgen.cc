@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
 		global_data_t		gd;
 
 		gd.ifindex = if_nametoindex("enp5s0f1");
-		gd.query.read_raw("/tmp/queryfile-example-current.raw");
+		gd.query.read_raw("./queryfile-example-current.raw");
 		gd.query_count = gd.query.size();
 		gd.dest_port = 8053;
 		gd.src_ip = inet_addr("10.255.255.245");
