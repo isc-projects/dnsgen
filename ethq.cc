@@ -194,8 +194,8 @@ int EthQApp::run()
 
 	timespec t;
 	clock_gettime(CLOCK_MONOTONIC, &t);
-	t.tv_nsec = 0;
 	while (true) {
+		t.tv_nsec = 0;
 		t.tv_sec += 1;
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, nullptr);
 		get_deltas();
