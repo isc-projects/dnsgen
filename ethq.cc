@@ -7,6 +7,8 @@
 #include <map>
 #include <algorithm>
 
+#include <poll.h>
+
 #include <ncurses/ncurses.h>
 #include <ncurses/cursesapp.h>
 #include <ncurses/cursesp.h>
@@ -185,6 +187,12 @@ void EthQApp::redraw()
 	panel->refresh();
 }
 
+bool key_pressed()
+{
+	static struct pollfd fds = { fileno(stdin), POLLIN, 0 };
+	return poll(&fds, 1, 0) > 0;
+}
+
 int EthQApp::run()
 {
 	prev = get_stats();
@@ -200,7 +208,16 @@ int EthQApp::run()
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, nullptr);
 		get_deltas();
 		redraw();
+
+		if (key_pressed()) {
+			auto ch = panel->getch();
+			if (ch == 'q' || ch == 'Q') {
+				break;
+			}
+		}
 	}
+
+	return 0;
 }
 
 int main(int argc, char *argv[])
