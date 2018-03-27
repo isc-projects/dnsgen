@@ -57,6 +57,7 @@ private:
 public:
 				EthQApp();
 				~EthQApp();
+	void			handleArgs(int argc, char *argv[]);
 	int			run();
 
 };
@@ -142,9 +143,13 @@ void EthQApp::get_deltas()
 	std::swap(stats, prev);
 }
 
-EthQApp::EthQApp() : NCursesApplication(), qcount(0)
+void EthQApp::handleArgs(int argc, char *argv[])
 {
-	ethtool = new Ethtool("enp5s0f1");
+	if (argc != 2) {
+		throw std::runtime_error("usage: ethq <iface>");
+	}
+
+	ethtool = new Ethtool(argv[1]);
 	build_queue_map(ethtool->stringset(ETH_SS_STATS));
 
 	if (qcount == 0) {
@@ -152,6 +157,10 @@ EthQApp::EthQApp() : NCursesApplication(), qcount(0)
 	}
 
 	delta.reserve(qcount);
+}
+
+EthQApp::EthQApp() : NCursesApplication(), qcount(0)
+{
 }
 
 EthQApp::~EthQApp()
