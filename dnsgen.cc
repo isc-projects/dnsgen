@@ -23,6 +23,8 @@
 #include "timespec.h"
 #include "util.h"
 
+static std::exception_ptr globex = nullptr;
+
 typedef struct {
 	PacketSocket			packet;
 	uint16_t			index;
@@ -148,7 +150,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	return offset;
 }
 
-void sender(global_data_t& gd, thread_data_t& td)
+void sender_loop(global_data_t& gd, thread_data_t& td)
 {
 	std::array<uint8_t, 6> mac = { { 0x3c, 0xfd, 0xfe, 0x03, 0xb6, 0x62 } };
 
@@ -189,6 +191,15 @@ void sender(global_data_t& gd, thread_data_t& td)
 	}
 }
 
+void sender(global_data_t& gd, thread_data_t& td)
+{
+	try {
+		sender_loop(gd, td);
+	} catch (...) {
+		globex = std::current_exception();
+	}
+}
+
 ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, void *userdata)
 {
 	auto &td = *reinterpret_cast<thread_data_t*>(userdata);
@@ -198,11 +209,15 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 
 void receiver(global_data_t& gd, thread_data_t& td)
 {
-	td.packet.rx_ring_enable(11, 1024);	// frame size = 1 << 11 = 2048
-	while (!gd.stop) {
-		if (td.packet.rx_ring_next(receive_one, 10, &td)) {
-			++gd.rx_count;
+	try {
+		td.packet.rx_ring_enable(11, 1024);	// frame size = 1 << 11 = 2048
+		while (!gd.stop) {
+			if (td.packet.rx_ring_next(receive_one, 10, &td)) {
+				++gd.rx_count;
+			}
 		}
+	} catch (...) {
+		globex = std::current_exception();
 	}
 }
 
@@ -391,6 +406,10 @@ int main(int argc, char *argv[])
 
 		timer.join();
 		rate.join();
+
+		if (globex) {
+			std::rethrow_exception(globex);
+		}
 
 	} catch (std::runtime_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;
