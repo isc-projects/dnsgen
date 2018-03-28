@@ -16,6 +16,7 @@
 #include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#include <netinet/ether.h>
 #include <linux/if_ether.h>
 
 #include "datafile.h"
@@ -45,6 +46,7 @@ typedef struct {
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
+	ether_addr			dest_mac;
 	Datafile			query;
 	size_t				query_count;
 	std::atomic<uint32_t>		rx_count;
@@ -152,14 +154,12 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 void sender_loop(global_data_t& gd, thread_data_t& td)
 {
-	std::array<uint8_t, 6> mac = { { 0x3c, 0xfd, 0xfe, 0x03, 0xb6, 0x62 } };
-
 	static sockaddr_ll addr = { 0 };
 	addr.sll_family = AF_PACKET;
 	addr.sll_ifindex = gd.ifindex;
 	addr.sll_protocol = htons(ETH_P_IP);
 	addr.sll_halen = IFHWADDRLEN;
-	memcpy(addr.sll_addr, mac.data(), 6);
+	memcpy(addr.sll_addr, &gd.dest_mac, 6);
 
 	// wait for start condition
 	{
@@ -297,10 +297,11 @@ void usage(int result = EXIT_FAILURE)
 {
 	using namespace std;
 
-	cout << "dnsgen -s <server_addr> [-p <port>] -a <local_addr> [-T <threads>]" << endl;
-	cout << "       [-l <timelimit>] -d <datafile>" << endl;
+	cout << "dnsgen -s <server_addr> [-p <port>] -S <server_mac_addr> -a <local_addr>" << endl;
+        cout << "       [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
 	cout << "  -s the server to query" << endl;
 	cout << "  -p the port on which to query the server (default: 53)" << endl;
+	cout << "  -S the MAC address of the server to query" << endl;
 	cout << "  -a the local addrss from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
@@ -315,6 +316,7 @@ int main(int argc, char *argv[])
 	const char *ifname = "enp5s0f1";
 	const char *src = nullptr;
 	const char *dest = nullptr;
+	const char *dest_mac = nullptr;
 	uint16_t port = 53;
 	uint16_t thread_count = std::thread::hardware_concurrency();
 	unsigned int runtime = 30;
@@ -326,6 +328,7 @@ int main(int argc, char *argv[])
 			case 'i': argc--; argv++; ifname = *argv; break;
 			case 'a': argc--; argv++; src = *argv; break;
 			case 's': argc--; argv++; dest = *argv; break;
+			case 'S': argc--; argv++; dest_mac = *argv; break;
 			case 'd': argc--; argc++; datafile = *argv; break;
 			case 'p': argc--; argv++; port = atoi(*argv); break;
 			case 'l': argc--; argc++; runtime = atoi(*argv); break;
@@ -337,7 +340,7 @@ int main(int argc, char *argv[])
 		argv++;
 	}
 
-	if (argc || !src || !dest) {
+	if (argc || !src || !dest || !dest_mac) {
 		usage();
 	}
 
@@ -355,8 +358,12 @@ int main(int argc, char *argv[])
 		gd.runtime = runtime;
 		gd.thread_count = thread_count;
 		gd.rate = 1e6;
-		int n = gd.thread_count;
 
+		if (!ether_aton_r(dest_mac, &gd.dest_mac)) {
+			throw std::runtime_error("invalid destination MAC");
+		}
+
+		int n = gd.thread_count;
 		std::thread sender_thread[n], receiver_thread[n];
 		thread_data_t thread_data[n];
 
