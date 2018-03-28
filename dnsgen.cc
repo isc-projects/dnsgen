@@ -303,7 +303,7 @@ void usage(int result = EXIT_FAILURE)
 	cout << "  -p the port on which to query the server (default: 53)" << endl;
 	cout << "  -a the local addrss from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
-	cout << "  -T the number of threads to run (default: _SC_NPROCESSORS_ONLN)" << endl;
+	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 	cout << "  -l run for at most this many seconds" << endl;
 
 	exit(result);
@@ -316,7 +316,7 @@ int main(int argc, char *argv[])
 	const char *src = nullptr;
 	const char *dest = nullptr;
 	uint16_t port = 53;
-	uint16_t thread_count = sysconf(_SC_NPROCESSORS_ONLN);
+	uint16_t thread_count = std::thread::hardware_concurrency();
 	unsigned int runtime = 30;
 
 	while (argc > 0 && **argv == '-') {
