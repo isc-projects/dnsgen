@@ -49,6 +49,7 @@ typedef struct {
 	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
+	unsigned int			runtime;
 	std::mutex			mutex;
 	std::condition_variable		cv;
 } global_data_t;
@@ -277,22 +278,67 @@ uint64_t calibrate_clock()
 	return delta / iterations;
 }
 
+void usage(int result = EXIT_FAILURE)
+{
+	using namespace std;
+
+	cout << "dnsgen -s <server_addr> [-p <port>] -a <local_addr> [-T <threads>]" << endl;
+	cout << "       [-l <timelimit>] -d <datafile>" << endl;
+	cout << "  -s the server to query" << endl;
+	cout << "  -p the port on which to query the server (default: 53)" << endl;
+	cout << "  -a the local addrss from which to send queries" << endl;
+	cout << "  -d the input data file" << endl;
+	cout << "  -T the number of threads to run (default: _SC_NPROCESSORS_ONLN)" << endl;
+	cout << "  -l run for at most this many seconds" << endl;
+
+	exit(result);
+}
+
 int main(int argc, char *argv[])
 {
-	const std::string ifname = "enp5s0f1";
+	const char *datafile = nullptr;
+	const char *ifname = "enp5s0f1";
+	const char *src = nullptr;
+	const char *dest = nullptr;
+	uint16_t port = 53;
+	uint16_t thread_count = sysconf(_SC_NPROCESSORS_ONLN);
+	unsigned int runtime = 30;
+
+	while (argc > 0 && **argv == '-') {
+		char o = *++*argv;
+
+		switch (o) {
+			case 'i': argc--; argv++; ifname = *argv; break;
+			case 'a': argc--; argv++; src = *argv; break;
+			case 's': argc--; argv++; dest = *argv; break;
+			case 'd': argc--; argc++; datafile = *argv; break;
+			case 'p': argc--; argv++; port = atoi(*argv); break;
+			case 'l': argc--; argc++; runtime = atoi(*argv); break;
+			case 'T': argc--; argc++; thread_count= atoi(*argv); break;
+			case 'h': usage(EXIT_SUCCESS);
+			default: usage();
+		}
+		argc--;
+		argv++;
+	}
+
+	if (argc || !src || !dest) {
+		usage();
+	}
 
 	try {
 		global_data_t		gd;
 
-		gd.ifindex = if_nametoindex("enp5s0f1");
-		gd.query.read_raw("./queryfile-example-current.raw");
+		gd.ifindex = if_nametoindex(ifname);
+		gd.query.read_raw(datafile);
 		gd.query_count = gd.query.size();
-		gd.dest_port = 8053;
-		gd.src_ip = inet_addr("10.255.255.245");
-		gd.dest_ip = inet_addr("10.255.255.244");
+		gd.dest_port = port;
+		gd.src_ip = inet_addr(src);
+		gd.dest_ip = inet_addr(dest);
 		gd.start = false;
 		gd.stop = false;
-		gd.thread_count = 12;
+		gd.runtime = runtime;
+		gd.thread_count = thread_count;
 		gd.rate = 1e6;
 		int n = gd.thread_count;
 
@@ -333,7 +379,8 @@ int main(int argc, char *argv[])
 				gd.start = true;
 			}
 			gd.cv.notify_all();
-			sleep(30);
+			timespec wakeup = { gd.runtime, 0 };
+			clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
 			gd.stop = true;
 		});
 
