@@ -375,7 +375,7 @@ int main(int argc, char *argv[])
 
 		auto timer = std::thread([&gd]() {
 			{
-				std::unique_lock<std::mutex> lock(gd.mutex);
+				std::lock_guard<std::mutex> lock(gd.mutex);
 				gd.start = true;
 			}
 			gd.cv.notify_all();
