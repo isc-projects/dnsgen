@@ -297,12 +297,13 @@ void usage(int result = EXIT_FAILURE)
 {
 	using namespace std;
 
-	cout << "dnsgen -s <server_addr> [-p <port>] -S <server_mac_addr> -a <local_addr>" << endl;
-        cout << "       [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
+	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
+        cout << "       -s <server_addr> [-p <port>] -S <server_mac_addr>" << endl;
+        cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
 	cout << "  -s the server to query" << endl;
 	cout << "  -p the port on which to query the server (default: 53)" << endl;
 	cout << "  -S the MAC address of the server to query" << endl;
-	cout << "  -a the local addrss from which to send queries" << endl;
+	cout << "  -a the local address from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 	cout << "  -l run for at most this many seconds" << endl;
@@ -313,7 +314,7 @@ void usage(int result = EXIT_FAILURE)
 int main(int argc, char *argv[])
 {
 	const char *datafile = nullptr;
-	const char *ifname = "enp5s0f1";
+	const char *ifname = nullptr;
 	const char *src = nullptr;
 	const char *dest = nullptr;
 	const char *dest_mac = nullptr;
@@ -340,7 +341,7 @@ int main(int argc, char *argv[])
 		argv++;
 	}
 
-	if (argc || !src || !dest || !dest_mac) {
+	if (argc || !src || !dest || !dest_mac || !datafile || !ifname) {
 		usage();
 	}
 
