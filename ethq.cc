@@ -37,9 +37,9 @@ typedef std::map<size_t, queue_entry_t>		queue_map_t;
 class EthQApp : public NCursesApplication {
 
 private:
-	Ethtool*		ethtool;
+	Ethtool*		ethtool = nullptr;
 	queue_map_t		qmap;
-	size_t			qcount;
+	size_t			qcount = 0;
 	stats_list_t		prev;
 	stats_list_t		delta;
 	queuestats_t		total;
@@ -155,7 +155,6 @@ void EthQApp::handleArgs(int argc, char *argv[])
 	if (qcount == 0) {
 		throw std::runtime_error("No queues found");
 	}
-
 	delta.reserve(qcount);
 }
 
@@ -237,14 +236,16 @@ int main(int argc, char *argv[])
 	try {
 		EthQApp app;
 		app.handleArgs(argc, argv);
-		res = app();
-		endwin();
+		try {
+			res = app();
+		} catch (...) {
+			endwin();
+			throw(std::current_exception());
+		}
 	} catch (const NCursesException *e) {
-		endwin();
 		std::cerr << e->message << std::endl;
 		res = e->errorno;
 	} catch (const NCursesException &e) {
-		endwin();
 		std::cerr << e.message << std::endl;
 		res = e.errorno;
 	} catch (const std::exception& e) {

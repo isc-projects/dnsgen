@@ -332,10 +332,10 @@ int main(int argc, char *argv[])
 			case 'a': argc--; argv++; src = *argv; break;
 			case 's': argc--; argv++; dest = *argv; break;
 			case 'S': argc--; argv++; dest_mac = *argv; break;
-			case 'd': argc--; argc++; datafile = *argv; break;
+			case 'd': argc--; argv++; datafile = *argv; break;
 			case 'p': argc--; argv++; port = atoi(*argv); break;
-			case 'l': argc--; argc++; runtime = atoi(*argv); break;
-			case 'T': argc--; argc++; thread_count= atoi(*argv); break;
+			case 'l': argc--; argv++; runtime = atoi(*argv); break;
+			case 'T': argc--; argv++; thread_count= atoi(*argv); break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
 		}
