@@ -322,6 +322,8 @@ int main(int argc, char *argv[])
 	uint16_t thread_count = std::thread::hardware_concurrency();
 	unsigned int runtime = 30;
 
+	argc--;
+	argv++;
 	while (argc > 0 && **argv == '-') {
 		char o = *++*argv;
 

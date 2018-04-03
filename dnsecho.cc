@@ -121,6 +121,8 @@ int main(int argc, char *argv[])
 	uint16_t port = 8053;
 	uint16_t threads = std::thread::hardware_concurrency();
 
+	argc--;
+	argv++;
 	while (argc > 0 && **argv == '-') {
 		char o = *++*argv;
 
