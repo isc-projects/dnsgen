@@ -5,7 +5,6 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/mman.h>
-#include <net/if.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 
@@ -15,6 +14,8 @@
 
 #include "packet.h"
 #include "util.h"
+
+extern "C" unsigned int if_nametoindex (const char *__ifname);
 
 PacketSocket::~PacketSocket()
 {

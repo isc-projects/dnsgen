@@ -1,6 +1,7 @@
 #ifndef __packet_h
 #define __packet_h
 
+#include <cstddef>
 #include <string>
 #include <poll.h>
 #include <linux/if_packet.h>
