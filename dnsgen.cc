@@ -89,7 +89,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	for (size_t i = 0; i < n; ++i) {
 
 		// get next n'th query from the data file
-		auto query = gd.query[td.query_num];
+		auto& query = gd.query[td.query_num];
 		td.query_num += gd.thread_count;
 		if (td.query_num > gd.query_count) {
 			td.query_num -= gd.query_count;
