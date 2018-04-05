@@ -50,6 +50,7 @@ typedef struct {
 	Datafile			query;
 	size_t				query_count;
 	std::atomic<uint32_t>		rx_count;
+	std::atomic<uint32_t>		tx_count;
 	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
@@ -178,6 +179,7 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 			if (errno == EAGAIN) continue;
 			throw_errno("sendmsg");
 		} else {
+			gd.tx_count += res;
 			td.tx_count += res;
 
 			// artificial delay
@@ -234,17 +236,17 @@ void rate_adapter(global_data_t& gd)
 		while (!gd.start) gd.cv.wait(lock);
 	}
 
-	timespec now;
-	timespec error = { 0, 0 };
-	clock_gettime(CLOCK_MONOTONIC, &now);
+	timespec next;
+	clock_gettime(CLOCK_MONOTONIC, &next);
 
 	uint32_t rx_max = 0;
 
 	do {
-		timespec next = now + interval - error;
+		next = next + interval;
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
+
+		timespec now;
 		clock_gettime(CLOCK_MONOTONIC, &now);
-		error = now - next;
 
 		// accumulate 'n' readings
 		rates.push_back(gd.rx_count);
@@ -261,10 +263,15 @@ void rate_adapter(global_data_t& gd)
 		rx_max = std::max(rx_rate, rx_max);
 		tx_rate = rx_max + 100000;
 
-		// std::cerr << rx_rate << " " << tx_rate << " " << gd.rate << std::endl;
+		using namespace std;
+		cerr << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
+		cerr << gd.tx_count << " " << gd.rx_count << " ";
+		cerr << rx_max << " ";
+		cerr << endl;
 
 		gd.rate = tx_rate;
 		gd.rx_count = 0;
+		gd.tx_count = 0;
 
 	} while (!gd.stop);
 
@@ -360,7 +367,9 @@ int main(int argc, char *argv[])
 		gd.stop = false;
 		gd.runtime = runtime;
 		gd.thread_count = thread_count;
-		gd.rate = 1e6;
+		gd.rate = 10000;
+		gd.rx_count = 0;
+		gd.tx_count = 0;
 
 		if (!ether_aton_r(dest_mac, &gd.dest_mac)) {
 			throw std::runtime_error("invalid destination MAC");
@@ -403,7 +412,15 @@ int main(int argc, char *argv[])
 				std::lock_guard<std::mutex> lock(gd.mutex);
 				gd.start = true;
 			}
+
+			timespec start;
+			clock_gettime(CLOCK_MONOTONIC, &start);
+			start.tv_sec += 1;
+			start.tv_nsec = 0;
+			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &start, nullptr);
+
 			gd.cv.notify_all();
+
 			timespec wakeup = { gd.runtime, 0 };
 			clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
 			gd.stop = true;
