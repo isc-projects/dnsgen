@@ -387,6 +387,7 @@ int main(int argc, char *argv[])
 			td.packet.open();
 			td.packet.bind(gd.ifindex);
 
+			td.query_num = i;
 			td.port_count = 4096;
 			td.port_base = 16384 + td.port_count * i;
 			td.tx_count = 0;
