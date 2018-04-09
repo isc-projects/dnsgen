@@ -41,7 +41,7 @@ typedef struct {
 
 typedef struct {
 	int				thread_count;
-	size_t				batch_size = 16;
+	size_t				batch_size;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
@@ -57,6 +57,7 @@ typedef struct {
 	bool				rampmode;
 	unsigned int			runtime;
 	unsigned int			increment;
+	unsigned int			stats_out;
 	std::mutex			mutex;
 	std::condition_variable		cv;
 } global_data_t;
@@ -155,6 +156,14 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	return offset;
 }
 
+void wait_for_start(global_data_t& gd)
+{
+	std::unique_lock<std::mutex> lock(gd.mutex);
+	while (!gd.start) {
+		gd.cv.wait(lock);
+	}
+}
+
 void sender_loop(global_data_t& gd, thread_data_t& td)
 {
 	static sockaddr_ll addr = { 0 };
@@ -165,10 +174,7 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 	memcpy(addr.sll_addr, &gd.dest_mac, 6);
 
 	// wait for start condition
-	{
-		std::unique_lock<std::mutex> lock(gd.mutex);
-		while (!gd.start) gd.cv.wait(lock);
-	}
+	wait_for_start(gd);
 
 	timespec now;
 	timespec error = { 0, 0 };
@@ -229,56 +235,73 @@ void rate_adapter(global_data_t& gd)
 {
 	const uint64_t interval = 1e8;
 	const int qsize = 10;
+	uint32_t rx_max = 0;
+	std::deque<uint32_t> rates;
 
-	std::deque<uint32_t>	rates;
-
-	// wait for start condition
-	{
-		std::unique_lock<std::mutex> lock(gd.mutex);
-		while (!gd.start) gd.cv.wait(lock);
-	}
+	wait_for_start(gd);
 
 	timespec next;
 	clock_gettime(CLOCK_MONOTONIC, &next);
 
-	uint32_t rx_max = 0;
-
 	do {
+		// wait for the next clock interval
 		next = next + interval;
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
 
-		timespec now;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-
-		// accumulate 'n' readings
+		// accumulate and average the last 'n' readings
 		rates.push_back(gd.rx_count);
 		if (rates.size() > qsize) {
 			rates.pop_front();
 		}
-
 		auto rx_average = std::accumulate(rates.cbegin(), rates.cend(), 0U) / rates.size();
 
-		// rate = count / time
+		// convert into per second rate and record max achieved
 		uint32_t rx_rate = 1e9 * rx_average / interval;
 		rx_max = std::max(rx_rate, rx_max);
+
+		// show stats
+		timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
 
 		using namespace std;
 		cout << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
 		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
-		cout << rx_max << " ";
 		cout << endl;
 
+		// adjust the rate for the next pass
 		if (gd.rampmode) {
 			gd.rate += gd.increment;
 		} else {
 			gd.rate = rx_max + gd.increment;
 		}
+
+		// reset the counters for the next pass
 		gd.rx_count = 0;
 		gd.tx_count = 0;
 
 	} while (!gd.stop);
 
 	std::cout << "Peak RX rate = " << rx_max << std::endl;
+}
+
+void life_timer(global_data_t& gd)
+{
+	{
+		std::lock_guard<std::mutex> lock(gd.mutex);
+		gd.start = true;
+	}
+
+	timespec start;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	start.tv_sec += 1;
+	start.tv_nsec = 0;
+	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &start, nullptr);
+
+	gd.cv.notify_all();
+
+	timespec wakeup = { gd.runtime, 0 };
+	clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
+	gd.stop = true;
 }
 
 void usage(int result = EXIT_FAILURE)
@@ -338,6 +361,7 @@ int main(int argc, char *argv[])
 			case 'b': argc--; argv++; gd.batch_size = atoi(*argv); break;
 			case 'r': argc--; argv++; gd.rate = atoi(*argv); break;
 			case 'R': argc--; argv++; gd.increment = atoi(*argv); break;
+			case 'S': argc--; argv++; gd.stats_out = atoi(*argv); break;
 			case 'M': gd.rampmode = true; break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
@@ -397,25 +421,7 @@ int main(int argc, char *argv[])
 		}
 
 		auto rate = std::thread(rate_adapter, std::ref(gd));
-
-		auto timer = std::thread([&gd]() {
-			{
-				std::lock_guard<std::mutex> lock(gd.mutex);
-				gd.start = true;
-			}
-
-			timespec start;
-			clock_gettime(CLOCK_MONOTONIC, &start);
-			start.tv_sec += 1;
-			start.tv_nsec = 0;
-			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &start, nullptr);
-
-			gd.cv.notify_all();
-
-			timespec wakeup = { gd.runtime, 0 };
-			clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
-			gd.stop = true;
-		});
+		auto timer = std::thread(life_timer, std::ref(gd));
 
 		for (int i = 0; i < n; ++i) {
 			sender_thread[i].join();
