@@ -260,11 +260,8 @@ void rate_adapter(global_data_t& gd)
 		rx_max = std::max(rx_rate, rx_max);
 
 		// show stats
-		timespec now;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-
 		using namespace std;
-		cout << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
+		cout << next.tv_sec << "." << setw(3) << setfill('0') << next.tv_nsec / 1000000U << " ";
 		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
 		cout << endl;
 
