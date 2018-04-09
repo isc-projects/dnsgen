@@ -41,7 +41,7 @@ typedef struct {
 
 typedef struct {
 	int				thread_count;
-	size_t				batch_size = 64;
+	size_t				batch_size = 16;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
@@ -54,7 +54,9 @@ typedef struct {
 	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
+	bool				rampmode;
 	unsigned int			runtime;
+	unsigned int			increment;
 	std::mutex			mutex;
 	std::condition_variable		cv;
 } global_data_t;
@@ -258,46 +260,25 @@ void rate_adapter(global_data_t& gd)
 
 		// rate = count / time
 		uint32_t rx_rate = 1e9 * rx_average / interval;
-		uint32_t tx_rate = gd.rate;
-
 		rx_max = std::max(rx_rate, rx_max);
-		tx_rate = rx_max + 100000;
 
 		using namespace std;
 		cerr << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
-		cerr << gd.tx_count << " " << gd.rx_count << " ";
+		cerr << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
 		cerr << rx_max << " ";
 		cerr << endl;
 
-		gd.rate = tx_rate;
+		if (gd.rampmode) {
+			gd.rate += gd.increment;
+		} else {
+			gd.rate = rx_max + gd.increment;
+		}
 		gd.rx_count = 0;
 		gd.tx_count = 0;
 
 	} while (!gd.stop);
 
 	std::cerr << "Peak RX rate = " << rx_max << std::endl;
-}
-
-uint64_t calibrate_clock()
-{
-	timespec res, start, end, now;
-	const clockid_t clock_id = CLOCK_MONOTONIC;
-	const int iterations = 10000;
-
-	{
-		clock_getres(clock_id, &res);
-		std::cerr << "clock res = " << res << std::endl;
-	}
-
-	clock_gettime(clock_id, &start);
-	for (int i = 0; i < iterations; ++i) {
-		clock_gettime(clock_id, &now);
-	}
-	clock_gettime(clock_id, &end);
-
-	uint64_t delta = 1e9 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
-
-	return delta / iterations;
 }
 
 void usage(int result = EXIT_FAILURE)
@@ -307,27 +288,38 @@ void usage(int result = EXIT_FAILURE)
 	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
         cout << "       -s <server_addr> [-p <port>] -S <server_mac_addr>" << endl;
         cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
+        cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
 	cout << "  -s the server to query" << endl;
-	cout << "  -p the port on which to query the server (default: 53)" << endl;
+	cout << "  -p the port on which to query the server (default: 8053)" << endl;
 	cout << "  -S the MAC address of the server to query" << endl;
 	cout << "  -a the local address from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 	cout << "  -l run for at most this many seconds" << endl;
+	cout << "  -b packet batch size" << endl;
+	cout << "  -r initial packet rate (10000)" << endl;
+	cout << "  -R packet rate increment (10000)" << endl;
 
 	exit(result);
 }
 
 int main(int argc, char *argv[])
 {
+	global_data_t		gd;
+
+	gd.thread_count = std::thread::hardware_concurrency();
+	gd.batch_size = 32;
+	gd.dest_port = 8053;
+	gd.rate = 10000;
+	gd.increment = 10000;
+	gd.runtime = 30;
+	gd.rampmode = false;
+
 	const char *datafile = nullptr;
 	const char *ifname = nullptr;
 	const char *src = nullptr;
 	const char *dest = nullptr;
 	const char *dest_mac = nullptr;
-	uint16_t port = 53;
-	uint16_t thread_count = std::thread::hardware_concurrency();
-	unsigned int runtime = 30;
 
 	argc--;
 	argv++;
@@ -340,9 +332,13 @@ int main(int argc, char *argv[])
 			case 's': argc--; argv++; dest = *argv; break;
 			case 'S': argc--; argv++; dest_mac = *argv; break;
 			case 'd': argc--; argv++; datafile = *argv; break;
-			case 'p': argc--; argv++; port = atoi(*argv); break;
-			case 'l': argc--; argv++; runtime = atoi(*argv); break;
-			case 'T': argc--; argv++; thread_count= atoi(*argv); break;
+			case 'p': argc--; argv++; gd.dest_port = atoi(*argv); break;
+			case 'l': argc--; argv++; gd.runtime = atoi(*argv); break;
+			case 'T': argc--; argv++; gd.thread_count= atoi(*argv); break;
+			case 'b': argc--; argv++; gd.batch_size = atoi(*argv); break;
+			case 'r': argc--; argv++; gd.rate = atoi(*argv); break;
+			case 'R': argc--; argv++; gd.increment = atoi(*argv); break;
+			case 'M': gd.rampmode = true; break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
 		}
@@ -355,19 +351,13 @@ int main(int argc, char *argv[])
 	}
 
 	try {
-		global_data_t		gd;
-
 		gd.ifindex = if_nametoindex(ifname);
 		gd.query.read_raw(datafile);
 		gd.query_count = gd.query.size();
-		gd.dest_port = port;
 		gd.src_ip = inet_addr(src);
 		gd.dest_ip = inet_addr(dest);
 		gd.start = false;
 		gd.stop = false;
-		gd.runtime = runtime;
-		gd.thread_count = thread_count;
-		gd.rate = 10000;
 		gd.rx_count = 0;
 		gd.tx_count = 0;
 
