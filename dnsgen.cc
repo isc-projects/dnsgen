@@ -263,10 +263,10 @@ void rate_adapter(global_data_t& gd)
 		rx_max = std::max(rx_rate, rx_max);
 
 		using namespace std;
-		cerr << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
-		cerr << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
-		cerr << rx_max << " ";
-		cerr << endl;
+		cout << now.tv_sec << "." << setw(9) << setfill('0') << now.tv_nsec << " ";
+		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
+		cout << rx_max << " ";
+		cout << endl;
 
 		if (gd.rampmode) {
 			gd.rate += gd.increment;
@@ -278,7 +278,7 @@ void rate_adapter(global_data_t& gd)
 
 	} while (!gd.stop);
 
-	std::cerr << "Peak RX rate = " << rx_max << std::endl;
+	std::cout << "Peak RX rate = " << rx_max << std::endl;
 }
 
 void usage(int result = EXIT_FAILURE)
