@@ -286,12 +286,12 @@ void usage(int result = EXIT_FAILURE)
 	using namespace std;
 
 	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
-        cout << "       -s <server_addr> [-p <port>] -S <server_mac_addr>" << endl;
+        cout << "       -s <server_addr> [-p <port>] -m <server_mac_addr>" << endl;
         cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
         cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
 	cout << "  -s the server to query" << endl;
 	cout << "  -p the port on which to query the server (default: 8053)" << endl;
-	cout << "  -S the MAC address of the server to query" << endl;
+	cout << "  -m the MAC address of the server to query" << endl;
 	cout << "  -a the local address from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
@@ -330,7 +330,7 @@ int main(int argc, char *argv[])
 			case 'i': argc--; argv++; ifname = *argv; break;
 			case 'a': argc--; argv++; src = *argv; break;
 			case 's': argc--; argv++; dest = *argv; break;
-			case 'S': argc--; argv++; dest_mac = *argv; break;
+			case 'm': argc--; argv++; dest_mac = *argv; break;
 			case 'd': argc--; argv++; datafile = *argv; break;
 			case 'p': argc--; argv++; gd.dest_port = atoi(*argv); break;
 			case 'l': argc--; argv++; gd.runtime = atoi(*argv); break;
