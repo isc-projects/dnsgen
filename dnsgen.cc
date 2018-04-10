@@ -336,6 +336,7 @@ int main(int argc, char *argv[])
 	gd.rampmode = false;
 
 	const char *datafile = nullptr;
+	const char *rawfile = nullptr;
 	const char *ifname = nullptr;
 	const char *src = nullptr;
 	const char *dest = nullptr;
@@ -352,6 +353,7 @@ int main(int argc, char *argv[])
 			case 's': argc--; argv++; dest = *argv; break;
 			case 'm': argc--; argv++; dest_mac = *argv; break;
 			case 'd': argc--; argv++; datafile = *argv; break;
+			case 'D': argc--; argv++; rawfile = *argv; break;
 			case 'p': argc--; argv++; gd.dest_port = atoi(*argv); break;
 			case 'l': argc--; argv++; gd.runtime = atoi(*argv); break;
 			case 'T': argc--; argv++; gd.thread_count= atoi(*argv); break;
@@ -367,13 +369,23 @@ int main(int argc, char *argv[])
 		argv++;
 	}
 
-	if (argc || !src || !dest || !dest_mac || !datafile || !ifname) {
+	// check for extra args, or missing mandatory args
+	if (argc || !src || !dest || !dest_mac || !ifname) {
+		usage();
+	}
+
+	// either rawfile or datafile must be specified (but not both)
+	if ((!rawfile ^ !datafile) == false) {
 		usage();
 	}
 
 	try {
 		gd.ifindex = if_nametoindex(ifname);
-		gd.query.read_raw(datafile);
+		if (rawfile) {
+			gd.query.read_raw(rawfile);
+		} else {
+			gd.query.read_txt(datafile);
+		}
 		gd.query_count = gd.query.size();
 		gd.src_ip = inet_addr(src);
 		gd.dest_ip = inet_addr(dest);
