@@ -82,6 +82,33 @@ static uint16_t checksum(const iphdr& hdr)
 	return static_cast<uint16_t>(~sum);
 }
 
+std::string thread_getname(std::thread& t)
+{
+	char buf[17];
+	pthread_getname_np(t.native_handle(), buf, sizeof buf);
+	return std::string(buf);
+}
+
+std::string thread_getname()
+{
+	char buf[17];
+	pthread_getname_np(pthread_self(), buf, sizeof buf);
+	return std::string(buf);
+}
+
+void thread_setname(std::thread& t, const std::string& name)
+{
+	pthread_setname_np(t.native_handle(), name.c_str());
+}
+
+void thread_setcpu(std::thread& t, unsigned int n)
+{
+	cpu_set_t cpu;
+	CPU_ZERO(&cpu);
+	CPU_SET(n, &cpu);
+	pthread_setaffinity_np(t.native_handle(), sizeof(cpu), &cpu);
+}
+
 ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
 	const auto n = gd.batch_size;
@@ -261,7 +288,7 @@ void rate_adapter(global_data_t& gd)
 
 		// show stats
 		using namespace std;
-		cout << next.tv_sec << "." << setw(3) << setfill('0') << next.tv_nsec / 1000000U << " ";
+		cout << next << " ";
 		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
 		cout << endl;
 
@@ -398,8 +425,11 @@ int main(int argc, char *argv[])
 			throw std::runtime_error("invalid destination MAC");
 		}
 
+		auto rate = std::thread(rate_adapter, std::ref(gd));
+		thread_setname(rate, "rate");
+
 		int n = gd.thread_count;
-		std::thread sender_thread[n], receiver_thread[n];
+		std::thread tx_thread[n], rx_thread[n];
 		thread_data_t thread_data[n];
 
 		for (int i = 0; i < n; ++i) {
@@ -416,25 +446,21 @@ int main(int argc, char *argv[])
 			td.tx_count = 0;
 			td.rx_count = 0;
 
-			sender_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
-			receiver_thread[i] = std::thread(receiver, std::ref(gd), std::ref(td));
+			auto& tx = tx_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
+			thread_setname(tx, std::string("tx:") + std::to_string(i));
+			thread_setcpu(tx, i);
 
-			cpu_set_t cpu;
-			CPU_ZERO(&cpu);
-			CPU_SET(i, &cpu);
-			pthread_setaffinity_np(sender_thread[i].native_handle(), sizeof(cpu), &cpu);
-
-			CPU_ZERO(&cpu);
-			CPU_SET(i, &cpu);
-			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
+			auto& rx = rx_thread[i] = std::thread(receiver, std::ref(gd), std::ref(td));
+			thread_setname(rx, std::string("rx:") + std::to_string(i));
+			thread_setcpu(rx, i);
 		}
 
-		auto rate = std::thread(rate_adapter, std::ref(gd));
 		auto timer = std::thread(life_timer, std::ref(gd));
+		thread_setname(timer, "timer");
 
 		for (int i = 0; i < n; ++i) {
-			sender_thread[i].join();
-			receiver_thread[i].join();
+			tx_thread[i].join();
+			rx_thread[i].join();
 		}
 
 		timer.join();
