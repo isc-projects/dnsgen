@@ -41,7 +41,7 @@ typedef struct {
 
 typedef struct {
 	int				thread_count;
-	size_t				batch_size = 64;
+	size_t				batch_size;
 	uint16_t			ifindex;
 	uint16_t			dest_port;
 	in_addr_t			src_ip;
@@ -50,10 +50,14 @@ typedef struct {
 	Datafile			query;
 	size_t				query_count;
 	std::atomic<uint32_t>		rx_count;
+	std::atomic<uint32_t>		tx_count;
 	std::atomic<uint32_t>		rate;
 	std::atomic<bool>		stop;
 	bool				start;
+	bool				rampmode;
 	unsigned int			runtime;
+	unsigned int			increment;
+	unsigned int			stats_out;
 	std::mutex			mutex;
 	std::condition_variable		cv;
 } global_data_t;
@@ -78,6 +82,33 @@ static uint16_t checksum(const iphdr& hdr)
 	return static_cast<uint16_t>(~sum);
 }
 
+std::string thread_getname(std::thread& t)
+{
+	char buf[17];
+	pthread_getname_np(t.native_handle(), buf, sizeof buf);
+	return std::string(buf);
+}
+
+std::string thread_getname()
+{
+	char buf[17];
+	pthread_getname_np(pthread_self(), buf, sizeof buf);
+	return std::string(buf);
+}
+
+void thread_setname(std::thread& t, const std::string& name)
+{
+	pthread_setname_np(t.native_handle(), name.c_str());
+}
+
+void thread_setcpu(std::thread& t, unsigned int n)
+{
+	cpu_set_t cpu;
+	CPU_ZERO(&cpu);
+	CPU_SET(n, &cpu);
+	pthread_setaffinity_np(t.native_handle(), sizeof(cpu), &cpu);
+}
+
 ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
 	const auto n = gd.batch_size;
@@ -88,7 +119,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	for (size_t i = 0; i < n; ++i) {
 
 		// get next n'th query from the data file
-		auto query = gd.query[td.query_num];
+		auto& query = gd.query[td.query_num];
 		td.query_num += gd.thread_count;
 		if (td.query_num > gd.query_count) {
 			td.query_num -= gd.query_count;
@@ -152,6 +183,14 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	return offset;
 }
 
+void wait_for_start(global_data_t& gd)
+{
+	std::unique_lock<std::mutex> lock(gd.mutex);
+	while (!gd.start) {
+		gd.cv.wait(lock);
+	}
+}
+
 void sender_loop(global_data_t& gd, thread_data_t& td)
 {
 	static sockaddr_ll addr = { 0 };
@@ -162,10 +201,7 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 	memcpy(addr.sll_addr, &gd.dest_mac, 6);
 
 	// wait for start condition
-	{
-		std::unique_lock<std::mutex> lock(gd.mutex);
-		while (!gd.start) gd.cv.wait(lock);
-	}
+	wait_for_start(gd);
 
 	timespec now;
 	timespec error = { 0, 0 };
@@ -178,6 +214,7 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 			if (errno == EAGAIN) continue;
 			throw_errno("sendmsg");
 		} else {
+			gd.tx_count += res;
 			td.tx_count += res;
 
 			// artificial delay
@@ -225,72 +262,70 @@ void rate_adapter(global_data_t& gd)
 {
 	const uint64_t interval = 1e8;
 	const int qsize = 10;
-
-	std::deque<uint32_t>	rates;
-
-	// wait for start condition
-	{
-		std::unique_lock<std::mutex> lock(gd.mutex);
-		while (!gd.start) gd.cv.wait(lock);
-	}
-
-	timespec now;
-	timespec error = { 0, 0 };
-	clock_gettime(CLOCK_MONOTONIC, &now);
-
 	uint32_t rx_max = 0;
+	std::deque<uint32_t> rates;
+
+	wait_for_start(gd);
+
+	timespec next;
+	clock_gettime(CLOCK_MONOTONIC, &next);
 
 	do {
-		timespec next = now + interval - error;
+		// wait for the next clock interval
+		next = next + interval;
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		error = now - next;
 
-		// accumulate 'n' readings
+		// accumulate and average the last 'n' readings
 		rates.push_back(gd.rx_count);
 		if (rates.size() > qsize) {
 			rates.pop_front();
 		}
-
 		auto rx_average = std::accumulate(rates.cbegin(), rates.cend(), 0U) / rates.size();
 
-		// rate = count / time
+		// convert into per second rate and record max achieved
 		uint32_t rx_rate = 1e9 * rx_average / interval;
-		uint32_t tx_rate = gd.rate;
-
 		rx_max = std::max(rx_rate, rx_max);
-		tx_rate = rx_max + 100000;
 
-		// std::cerr << rx_rate << " " << tx_rate << " " << gd.rate << std::endl;
+		// show stats
+		using namespace std;
+		cout << next << " ";
+		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
+		cout << endl;
 
-		gd.rate = tx_rate;
+		// adjust the rate for the next pass
+		if (gd.rampmode) {
+			gd.rate += gd.increment;
+		} else {
+			gd.rate = rx_max + gd.increment;
+		}
+
+		// reset the counters for the next pass
 		gd.rx_count = 0;
+		gd.tx_count = 0;
 
 	} while (!gd.stop);
 
-	std::cerr << "Peak RX rate = " << rx_max << std::endl;
+	std::cout << "Peak RX rate = " << rx_max << std::endl;
 }
 
-uint64_t calibrate_clock()
+void life_timer(global_data_t& gd)
 {
-	timespec res, start, end, now;
-	const clockid_t clock_id = CLOCK_MONOTONIC;
-	const int iterations = 10000;
-
 	{
-		clock_getres(clock_id, &res);
-		std::cerr << "clock res = " << res << std::endl;
+		std::lock_guard<std::mutex> lock(gd.mutex);
+		gd.start = true;
 	}
 
-	clock_gettime(clock_id, &start);
-	for (int i = 0; i < iterations; ++i) {
-		clock_gettime(clock_id, &now);
-	}
-	clock_gettime(clock_id, &end);
+	timespec start;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	start.tv_sec += 1;
+	start.tv_nsec = 0;
+	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &start, nullptr);
 
-	uint64_t delta = 1e9 * (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec);
+	gd.cv.notify_all();
 
-	return delta / iterations;
+	timespec wakeup = { gd.runtime, 0 };
+	clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
+	gd.stop = true;
 }
 
 void usage(int result = EXIT_FAILURE)
@@ -298,29 +333,41 @@ void usage(int result = EXIT_FAILURE)
 	using namespace std;
 
 	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
-        cout << "       -s <server_addr> [-p <port>] -S <server_mac_addr>" << endl;
+        cout << "       -s <server_addr> [-p <port>] -m <server_mac_addr>" << endl;
         cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
+        cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
 	cout << "  -s the server to query" << endl;
-	cout << "  -p the port on which to query the server (default: 53)" << endl;
-	cout << "  -S the MAC address of the server to query" << endl;
+	cout << "  -p the port on which to query the server (default: 8053)" << endl;
+	cout << "  -m the MAC address of the server to query" << endl;
 	cout << "  -a the local address from which to send queries" << endl;
 	cout << "  -d the input data file" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 	cout << "  -l run for at most this many seconds" << endl;
+	cout << "  -b packet batch size" << endl;
+	cout << "  -r initial packet rate (10000)" << endl;
+	cout << "  -R packet rate increment (10000)" << endl;
 
 	exit(result);
 }
 
 int main(int argc, char *argv[])
 {
+	global_data_t		gd;
+
+	gd.thread_count = std::thread::hardware_concurrency();
+	gd.batch_size = 32;
+	gd.dest_port = 8053;
+	gd.rate = 10000;
+	gd.increment = 10000;
+	gd.runtime = 30;
+	gd.rampmode = false;
+
 	const char *datafile = nullptr;
+	const char *rawfile = nullptr;
 	const char *ifname = nullptr;
 	const char *src = nullptr;
 	const char *dest = nullptr;
 	const char *dest_mac = nullptr;
-	uint16_t port = 53;
-	uint16_t thread_count = std::thread::hardware_concurrency();
-	unsigned int runtime = 30;
 
 	argc--;
 	argv++;
@@ -331,11 +378,17 @@ int main(int argc, char *argv[])
 			case 'i': argc--; argv++; ifname = *argv; break;
 			case 'a': argc--; argv++; src = *argv; break;
 			case 's': argc--; argv++; dest = *argv; break;
-			case 'S': argc--; argv++; dest_mac = *argv; break;
+			case 'm': argc--; argv++; dest_mac = *argv; break;
 			case 'd': argc--; argv++; datafile = *argv; break;
-			case 'p': argc--; argv++; port = atoi(*argv); break;
-			case 'l': argc--; argv++; runtime = atoi(*argv); break;
-			case 'T': argc--; argv++; thread_count= atoi(*argv); break;
+			case 'D': argc--; argv++; rawfile = *argv; break;
+			case 'p': argc--; argv++; gd.dest_port = atoi(*argv); break;
+			case 'l': argc--; argv++; gd.runtime = atoi(*argv); break;
+			case 'T': argc--; argv++; gd.thread_count= atoi(*argv); break;
+			case 'b': argc--; argv++; gd.batch_size = atoi(*argv); break;
+			case 'r': argc--; argv++; gd.rate = atoi(*argv); break;
+			case 'R': argc--; argv++; gd.increment = atoi(*argv); break;
+			case 'S': argc--; argv++; gd.stats_out = atoi(*argv); break;
+			case 'M': gd.rampmode = true; break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
 		}
@@ -343,31 +396,40 @@ int main(int argc, char *argv[])
 		argv++;
 	}
 
-	if (argc || !src || !dest || !dest_mac || !datafile || !ifname) {
+	// check for extra args, or missing mandatory args
+	if (argc || !src || !dest || !dest_mac || !ifname) {
+		usage();
+	}
+
+	// either rawfile or datafile must be specified (but not both)
+	if ((!rawfile ^ !datafile) == false) {
 		usage();
 	}
 
 	try {
-		global_data_t		gd;
-
 		gd.ifindex = if_nametoindex(ifname);
-		gd.query.read_raw(datafile);
+		if (rawfile) {
+			gd.query.read_raw(rawfile);
+		} else {
+			gd.query.read_txt(datafile);
+		}
 		gd.query_count = gd.query.size();
-		gd.dest_port = port;
 		gd.src_ip = inet_addr(src);
 		gd.dest_ip = inet_addr(dest);
 		gd.start = false;
 		gd.stop = false;
-		gd.runtime = runtime;
-		gd.thread_count = thread_count;
-		gd.rate = 1e6;
+		gd.rx_count = 0;
+		gd.tx_count = 0;
 
 		if (!ether_aton_r(dest_mac, &gd.dest_mac)) {
 			throw std::runtime_error("invalid destination MAC");
 		}
 
+		auto rate = std::thread(rate_adapter, std::ref(gd));
+		thread_setname(rate, "rate");
+
 		int n = gd.thread_count;
-		std::thread sender_thread[n], receiver_thread[n];
+		std::thread tx_thread[n], rx_thread[n];
 		thread_data_t thread_data[n];
 
 		for (int i = 0; i < n; ++i) {
@@ -378,40 +440,27 @@ int main(int argc, char *argv[])
 			td.packet.open();
 			td.packet.bind(gd.ifindex);
 
+			td.query_num = i;
 			td.port_count = 4096;
 			td.port_base = 16384 + td.port_count * i;
 			td.tx_count = 0;
 			td.rx_count = 0;
 
-			sender_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
-			receiver_thread[i] = std::thread(receiver, std::ref(gd), std::ref(td));
+			auto& tx = tx_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
+			thread_setname(tx, std::string("tx:") + std::to_string(i));
+			thread_setcpu(tx, i);
 
-			cpu_set_t cpu;
-			CPU_ZERO(&cpu);
-			CPU_SET(i, &cpu);
-			pthread_setaffinity_np(sender_thread[i].native_handle(), sizeof(cpu), &cpu);
-
-			CPU_ZERO(&cpu);
-			CPU_SET(i, &cpu);
-			pthread_setaffinity_np(receiver_thread[i].native_handle(), sizeof(cpu), &cpu);
+			auto& rx = rx_thread[i] = std::thread(receiver, std::ref(gd), std::ref(td));
+			thread_setname(rx, std::string("rx:") + std::to_string(i));
+			thread_setcpu(rx, i);
 		}
 
-		auto rate = std::thread(rate_adapter, std::ref(gd));
-
-		auto timer = std::thread([&gd]() {
-			{
-				std::lock_guard<std::mutex> lock(gd.mutex);
-				gd.start = true;
-			}
-			gd.cv.notify_all();
-			timespec wakeup = { gd.runtime, 0 };
-			clock_nanosleep(CLOCK_MONOTONIC, 0, &wakeup, nullptr);
-			gd.stop = true;
-		});
+		auto timer = std::thread(life_timer, std::ref(gd));
+		thread_setname(timer, "timer");
 
 		for (int i = 0; i < n; ++i) {
-			sender_thread[i].join();
-			receiver_thread[i].join();
+			tx_thread[i].join();
+			rx_thread[i].join();
 		}
 
 		timer.join();

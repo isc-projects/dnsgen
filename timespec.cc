@@ -6,7 +6,10 @@ static const long ns_per_s = 1000000000UL;
 std::ostream& operator<<(std::ostream& os, const timespec& ts)
 {
 	using namespace std;
+	ios init(nullptr);
+	init.copyfmt(os);
 	os << ts.tv_sec << "." << setw(9) << setfill('0') << ts.tv_nsec;
+	os.copyfmt(init);
 	return os;
 }
 

@@ -12,6 +12,7 @@ static std::map<std::string, uint16_t> type_map = {
 	{ "SOA",	  6 },
 	{ "PTR",	 12 },
 	{ "MX",		 15 },
+	{ "TXT",	 16 },
 	{ "AAAA",	 28 },
 	{ "SRV",	 33 },
 };
