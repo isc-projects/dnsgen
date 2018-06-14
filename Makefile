@@ -12,13 +12,13 @@ COMMON_OBJS	= packet.o timespec.o util.o
 
 all:		$(TARGETS)
 
-dnsgen:		dnsgen.o datafile.o query.o $(COMMON_OBJS)
+dnsgen:		dnsgen.o queryfile.o query.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_DNS) $(LIBS_THREAD)
 
 dnsecho:	dnsecho.o packet.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_THREAD)
 
-dnscvt:		dnscvt.o datafile.o query.o $(COMMON_OBJS)
+dnscvt:		dnscvt.o queryfile.o query.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_DNS) $(LIBS_THREAD)
 
 ethq:		ethq.o ethtool++.o $(COMMON_OBJS)
@@ -27,7 +27,7 @@ ethq:		ethq.o ethtool++.o $(COMMON_OBJS)
 clean:
 	$(RM) $(TARGETS) *.o
 
-datafile.o:	datafile.h query.h
+queryfile.o:	queryfile.h
 
 ethtool++.o:	ethtool++.h
 

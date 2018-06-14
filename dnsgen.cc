@@ -19,7 +19,7 @@
 #include <netinet/ether.h>
 #include <linux/if_ether.h>
 
-#include "datafile.h"
+#include "queryfile.h"
 #include "packet.h"
 #include "timespec.h"
 #include "util.h"
@@ -47,7 +47,7 @@ typedef struct {
 	in_addr_t			src_ip;
 	in_addr_t			dest_ip;
 	ether_addr			dest_mac;
-	Datafile			query;
+	QueryFile			query;
 	size_t				query_count;
 	std::atomic<uint32_t>		rx_count;
 	std::atomic<uint32_t>		tx_count;
@@ -435,7 +435,7 @@ int main(int argc, char *argv[])
 		for (int i = 0; i < n; ++i) {
 			auto& td = thread_data[i];
 
-			memset(&td, 0, sizeof td);
+			// memset(&td, 0, sizeof td);
 			td.index = i;
 			td.packet.open();
 			td.packet.bind(gd.ifindex);
