@@ -21,7 +21,7 @@
 
 #include "queryfile.h"
 #include "packet.h"
-#include "timespec.h"
+#include "timer.h"
 #include "util.h"
 
 static std::exception_ptr globex = nullptr;
