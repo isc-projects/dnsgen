@@ -369,35 +369,37 @@ int main(int argc, char *argv[])
 	const char *dest = nullptr;
 	const char *dest_mac = nullptr;
 
-	argc--;
-	argv++;
-	while (argc > 0 && **argv == '-') {
-		char o = *++*argv;
-
-		switch (o) {
-			case 'i': argc--; argv++; ifname = *argv; break;
-			case 'a': argc--; argv++; src = *argv; break;
-			case 's': argc--; argv++; dest = *argv; break;
-			case 'm': argc--; argv++; dest_mac = *argv; break;
-			case 'd': argc--; argv++; datafile = *argv; break;
-			case 'D': argc--; argv++; rawfile = *argv; break;
-			case 'p': argc--; argv++; gd.dest_port = atoi(*argv); break;
-			case 'l': argc--; argv++; gd.runtime = atoi(*argv); break;
-			case 'T': argc--; argv++; gd.thread_count= atoi(*argv); break;
-			case 'b': argc--; argv++; gd.batch_size = atoi(*argv); break;
-			case 'r': argc--; argv++; gd.rate = atoi(*argv); break;
-			case 'R': argc--; argv++; gd.increment = atoi(*argv); break;
-			case 'S': argc--; argv++; gd.stats_out = atoi(*argv); break;
+	int opt;
+	while ((opt = getopt(argc, argv, "i:a:s:m:d:D:p:l:T:b:r:R:S:M")) != -1) {
+		switch (opt) {
+			case 'i': ifname = optarg; break;
+			case 'a': src = optarg; break;
+			case 's': dest = optarg; break;
+			case 'm': dest_mac = optarg; break;
+			case 'd': datafile = optarg; break;
+			case 'D': rawfile = optarg; break;
+			case 'p': gd.dest_port = atoi(optarg); break;
+			case 'l': gd.runtime = atoi(optarg); break;
+			case 'T': gd.thread_count= atoi(optarg); break;
+			case 'b': gd.batch_size = atoi(optarg); break;
+			case 'r': gd.rate = atoi(optarg); break;
+			case 'R': gd.increment = atoi(optarg); break;
+			case 'S': gd.stats_out = atoi(optarg); break;
 			case 'M': gd.rampmode = true; break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
 		}
-		argc--;
-		argv++;
 	}
 
 	// check for extra args, or missing mandatory args
-	if (argc || !src || !dest || !dest_mac || !ifname) {
+	if ((optind < argc) || !src || !dest || !dest_mac || !ifname) {
+		usage();
+	}
+
+	// check for illegal args
+	if ((gd.thread_count < 1) || (gd.runtime < 1) ||
+	    (gd.batch_size < 1) || (gd.increment < 1))
+	{
 		usage();
 	}
 
