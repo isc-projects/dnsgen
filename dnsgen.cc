@@ -261,7 +261,7 @@ void receiver(global_data_t& gd, thread_data_t& td)
 void rate_adapter(global_data_t& gd)
 {
 	const uint64_t interval = 1e8;
-	const int qsize = 10;
+	const int qsize = 20;
 	uint32_t rx_max = 0;
 	std::deque<uint32_t> rates;
 
@@ -296,7 +296,7 @@ void rate_adapter(global_data_t& gd)
 		if (gd.rampmode) {
 			gd.rate += gd.increment;
 		} else {
-			gd.rate = rx_max + gd.increment;
+			gd.rate = 0.5 * (rx_rate + rx_max) + gd.increment;
 		}
 
 		// reset the counters for the next pass
