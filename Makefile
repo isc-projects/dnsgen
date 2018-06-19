@@ -8,17 +8,17 @@ LIBS_CURSES	= -lncurses++ -lncurses
 
 TARGETS		= dnsgen dnsecho dnscvt ethq
 
-COMMON_OBJS	= packet.o timespec.o util.o
+COMMON_OBJS	= packet.o timer.o util.o
 
 all:		$(TARGETS)
 
-dnsgen:		dnsgen.o datafile.o query.o $(COMMON_OBJS)
+dnsgen:		dnsgen.o queryfile.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_DNS) $(LIBS_THREAD)
 
 dnsecho:	dnsecho.o packet.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_THREAD)
 
-dnscvt:		dnscvt.o datafile.o query.o $(COMMON_OBJS)
+dnscvt:		dnscvt.o queryfile.o $(COMMON_OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LDFLAGS) $(LIBS_DNS) $(LIBS_THREAD)
 
 ethq:		ethq.o ethtool++.o $(COMMON_OBJS)
@@ -27,14 +27,12 @@ ethq:		ethq.o ethtool++.o $(COMMON_OBJS)
 clean:
 	$(RM) $(TARGETS) *.o
 
-datafile.o:	datafile.h query.h
+queryfile.o:	queryfile.h
 
 ethtool++.o:	ethtool++.h
 
 packet.o:	packet.h
 
-query.o:	query.h
-
-timespec.o:	timespec.h
+timer.o:	timer.h
 
 util.o:		util.h

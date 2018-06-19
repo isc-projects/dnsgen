@@ -1,7 +1,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
-#include "datafile.h"
+#include "queryfile.h"
 
 // via https://stackoverflow.com/a/2072890/6782
 inline bool ends_with(std::string const & value, std::string const & ending)
@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
 	}
 
 	try {
-		Datafile	df;
+		QueryFile	qf;
 
 		std::string input(argv[1]);
 		if (ends_with(input, ".txt")) {
@@ -27,8 +27,8 @@ int main(int argc, char *argv[])
 
 		std::string output = input + ".raw";
 
-		df.read_txt(input);
-		df.write_raw(output);
+		qf.read_txt(input);
+		qf.write_raw(output);
 
 	} catch (std::runtime_error& e) {
 		std::cerr << "error: " << e.what() << std::endl;
