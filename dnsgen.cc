@@ -287,9 +287,9 @@ void rate_adapter(global_data_t& gd)
 		rx_max = std::max(rx_rate, rx_max);
 
 		// show stats
+		const char SP = ' ';
 		using namespace std;
-		cout << next << " ";
-		cout << gd.rate << " " << gd.tx_count << " " << gd.rx_count << " ";
+		cout << next << SP << gd.rate << SP << rx_rate << SP << gd.tx_count << SP << gd.rx_count;
 		cout << endl;
 
 		// adjust the rate for the next pass
@@ -346,12 +346,18 @@ void usage(int result = EXIT_FAILURE)
 	cout << "  -b packet batch size" << endl;
 	cout << "  -r initial packet rate (10000)" << endl;
 	cout << "  -R packet rate increment (10000)" << endl;
+	cout << "  -U EDNS UDP buffer size" << endl;
+	cout << "  -X enable DNSSEC" << endl;
 
 	exit(result);
 }
 
 int main(int argc, char *argv[])
 {
+	bool edns = false;
+	bool do_bit = false;
+	uint16_t bufsize = 0;
+
 	global_data_t		gd;
 
 	gd.thread_count = std::thread::hardware_concurrency();
@@ -370,7 +376,7 @@ int main(int argc, char *argv[])
 	const char *dest_mac = nullptr;
 
 	int opt;
-	while ((opt = getopt(argc, argv, "i:a:s:m:d:D:p:l:T:b:r:R:S:M")) != -1) {
+	while ((opt = getopt(argc, argv, "i:a:s:m:d:D:p:l:T:b:r:R:S:MU:X")) != -1) {
 		switch (opt) {
 			case 'i': ifname = optarg; break;
 			case 'a': src = optarg; break;
@@ -386,6 +392,8 @@ int main(int argc, char *argv[])
 			case 'R': gd.increment = atoi(optarg); break;
 			case 'S': gd.stats_out = atoi(optarg); break;
 			case 'M': gd.rampmode = true; break;
+			case 'U': bufsize = atoi(optarg); edns = true; break;
+			case 'X': do_bit = true; break;
 			case 'h': usage(EXIT_SUCCESS);
 			default: usage();
 		}
@@ -408,6 +416,10 @@ int main(int argc, char *argv[])
 		usage();
 	}
 
+	if (bufsize < 512) {
+		bufsize = 512;
+	}
+
 	try {
 		gd.ifindex = if_nametoindex(ifname);
 		if (rawfile) {
@@ -425,6 +437,11 @@ int main(int argc, char *argv[])
 
 		if (!ether_aton_r(dest_mac, &gd.dest_mac)) {
 			throw std::runtime_error("invalid destination MAC");
+		}
+
+		// enable EDNS if required
+		if (edns || do_bit) {
+			gd.query.edns(bufsize, do_bit << 15);
 		}
 
 		auto rate = std::thread(rate_adapter, std::ref(gd));
