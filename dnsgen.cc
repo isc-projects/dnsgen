@@ -263,6 +263,7 @@ void rate_adapter(global_data_t& gd)
 	const uint64_t interval = 1e8;
 	const int qsize = 20;
 	uint32_t rx_max = 0;
+	uint32_t rpt_max = 0;
 	std::deque<uint32_t> rates;
 
 	wait_for_start(gd);
@@ -286,6 +287,11 @@ void rate_adapter(global_data_t& gd)
 		uint32_t rx_rate = 1e9 * rx_average / interval;
 		rx_max = std::max(rx_rate, rx_max);
 
+		// require a full cycle of tests for reporting max rate
+		if (rates.size() == qsize) {
+			rpt_max = std::max(rpt_max, rx_rate);
+		}
+
 		// show stats
 		const char SP = ' ';
 		using namespace std;
@@ -305,7 +311,7 @@ void rate_adapter(global_data_t& gd)
 
 	} while (!gd.stop);
 
-	std::cout << "Peak RX rate = " << rx_max << std::endl;
+	std::cout << "Peak RX rate = " << rpt_max << std::endl;
 }
 
 void life_timer(global_data_t& gd)
