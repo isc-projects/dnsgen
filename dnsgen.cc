@@ -57,7 +57,6 @@ typedef struct {
 	bool				rampmode;
 	unsigned int			runtime;
 	unsigned int			increment;
-	unsigned int			stats_out;
 	std::mutex			mutex;
 	std::condition_variable		cv;
 } global_data_t;
@@ -339,9 +338,10 @@ void usage(int result = EXIT_FAILURE)
 	using namespace std;
 
 	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
-        cout << "       -s <server_addr> [-p <port>] -m <server_mac_addr>" << endl;
-        cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
-        cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
+	cout << "       -s <server_addr> [-p <port>] -m <server_mac_addr>" << endl;
+	cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
+	cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
+	cout << "  -s the server to query" << endl;
 	cout << "  -s the server to query" << endl;
 	cout << "  -p the port on which to query the server (default: 8053)" << endl;
 	cout << "  -m the MAC address of the server to query" << endl;
@@ -352,6 +352,7 @@ void usage(int result = EXIT_FAILURE)
 	cout << "  -b packet batch size" << endl;
 	cout << "  -r initial packet rate (10000)" << endl;
 	cout << "  -R packet rate increment (10000)" << endl;
+	cout << "  -M disable rate adaption" << endl;
 	cout << "  -U EDNS UDP buffer size" << endl;
 	cout << "  -X enable DNSSEC" << endl;
 
@@ -396,7 +397,6 @@ int main(int argc, char *argv[])
 			case 'b': gd.batch_size = atoi(optarg); break;
 			case 'r': gd.rate = atoi(optarg); break;
 			case 'R': gd.increment = atoi(optarg); break;
-			case 'S': gd.stats_out = atoi(optarg); break;
 			case 'M': gd.rampmode = true; break;
 			case 'U': bufsize = atoi(optarg); edns = true; break;
 			case 'X': do_bit = true; break;
