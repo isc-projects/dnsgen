@@ -5,31 +5,57 @@
 #pragma once
 
 #include <time.h>
-#include <iostream>
-#include <string>
+#include <ostream>
 
 std::ostream& operator<<(std::ostream& os, const timespec& ts);
 timespec operator-(const timespec& a, const timespec& b);
 timespec operator+(const timespec& a, const timespec& b);
 timespec operator+(const timespec& a, const uint64_t ns);
 
-class BenchmarkTimer {
+static const long ns_per_s = 1000000000UL;
 
-	static uint64_t		current_id;
+inline std::ostream& operator<<(std::ostream& os, const timespec& ts)
+{
+	using namespace std;
+	ios init(nullptr);
+	init.copyfmt(os);
+	os << ts.tv_sec << "." << setw(9) << setfill('0') << ts.tv_nsec;
+	os.copyfmt(init);
+	return os;
+}
 
-	std::string		name;
-	uint64_t		timer_id;
-	clockid_t		clock_id;
-	timespec		start;
+inline timespec operator-(const timespec& a, const timespec& b)
+{
+	timespec res;
 
-public:
-	BenchmarkTimer(const std::string& name, clockid_t clock_id = CLOCK_PROCESS_CPUTIME_ID);
-	~BenchmarkTimer();
+	if (a.tv_nsec < b.tv_nsec) {
+		res.tv_sec = a.tv_sec - b.tv_sec - 1;
+		res.tv_nsec = ns_per_s + a.tv_nsec - b.tv_nsec;
+	}  else {
+		res.tv_sec = a.tv_sec - b.tv_sec;
+		res.tv_nsec = a.tv_nsec - b.tv_nsec;
+	}
 
-public:
-	timespec		elapsed() const;
-	std::ostream&		write(std::ostream&) const;
+	return res;
+}
 
-};
+inline timespec operator+(const timespec& a, const timespec& b)
+{
+	timespec res;
 
-std::ostream& operator<<(std::ostream&, const BenchmarkTimer&);
+	res.tv_sec = a.tv_sec + b.tv_sec;
+	res.tv_nsec = a.tv_nsec + b.tv_nsec;
+	while (res.tv_nsec > ns_per_s) {
+		res.tv_sec += 1;
+		res.tv_nsec -= ns_per_s;
+	}
+
+	return res;
+}
+
+inline timespec operator+(const timespec& a, const uint64_t ns)
+{
+	auto div = ldiv(ns, ns_per_s);
+	timespec delta = { div.quot, div.rem };;
+	return a + delta;
+}
