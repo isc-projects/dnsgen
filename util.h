@@ -9,11 +9,8 @@
  * information regarding copyright ownership.
  */
 
-#ifndef __util_h
-#define __util_h
+#pragma once
 
 #include <string>
 
 extern void throw_errno(const std::string& what);
-
-#endif // __util_h

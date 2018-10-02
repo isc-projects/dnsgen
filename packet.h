@@ -9,8 +9,7 @@
  * information regarding copyright ownership.
  */
 
-#ifndef __packet_h
-#define __packet_h
+#pragma once
 
 #include <cstddef>
 #include <string>
@@ -50,5 +49,3 @@ public:
 	void		rx_ring_enable(size_t frame_bits, size_t frame_nr);
 	int		rx_ring_next(rx_callback_t cb, int timeout = -1, void *userdata = nullptr);
 };
-
-#endif // __packet_h
