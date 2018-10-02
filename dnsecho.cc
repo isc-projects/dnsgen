@@ -65,42 +65,6 @@ ssize_t do_echo(uint8_t *buffer, size_t buflen,
 	return res;
 }
 
-// UNUSED
-ssize_t echo_one(thread_data_t& td)
-{
-	uint8_t buffer[4096];
-	sockaddr_ll client;
-	socklen_t clientlen = sizeof(client);
-
-	auto len = recvfrom(td.packet.fd, buffer, sizeof buffer, 0,
-			reinterpret_cast<sockaddr *>(&client), &clientlen);
-
-	if (len < 0) {
-		if (errno != EAGAIN) {
-			throw_errno("recvfrom");
-		}
-		return len;
-	}
-
-	return do_echo(buffer, len, &client, &td);
-}
-
-// UNUSED
-void echo_normal(thread_data_t& td)
-{
-	try {
-		while (true) {
-			if (td.packet.poll(1) <= 0) continue;
-
-			while (true) {
-				if (echo_one(td) <= 0) break;
-			}
-		}
-	} catch (std::logic_error& e) {
-		std::cerr << "error: " << e.what() << std::endl;
-	}
-}
-
 //
 // main thread worker function
 //

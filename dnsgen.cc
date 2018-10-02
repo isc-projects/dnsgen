@@ -85,22 +85,6 @@ static uint16_t checksum(const iphdr& hdr)
 	return static_cast<uint16_t>(~sum);
 }
 
-// UNUSED
-std::string thread_getname(std::thread& t)
-{
-	char buf[17];
-	pthread_getname_np(t.native_handle(), buf, sizeof buf);
-	return std::string(buf);
-}
-
-// UNUSED
-std::string thread_getname()
-{
-	char buf[17];
-	pthread_getname_np(pthread_self(), buf, sizeof buf);
-	return std::string(buf);
-}
-
 // set the given thread's name
 void thread_setname(std::thread& t, const std::string& name)
 {
