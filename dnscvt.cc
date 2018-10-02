@@ -20,13 +20,16 @@ int main(int argc, char *argv[])
 	try {
 		QueryFile	qf;
 
+		// remove .txt extension if found
 		std::string input(argv[1]);
 		if (ends_with(input, ".txt")) {
 			input.erase(input.length() - 4);
 		}
 
+		// append .raw
 		std::string output = input + ".raw";
 
+		// start the conversion
 		qf.read_txt(input);
 		qf.write_raw(output);
 

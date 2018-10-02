@@ -26,6 +26,7 @@
 
 static std::exception_ptr globex = nullptr;
 
+// thread state data
 typedef struct {
 	PacketSocket			packet;
 	uint16_t			index;
@@ -39,6 +40,7 @@ typedef struct {
 	size_t				query_num;
 } thread_data_t;
 
+// global application data
 typedef struct {
 	int				thread_count;
 	size_t				batch_size;
@@ -61,11 +63,13 @@ typedef struct {
 	std::condition_variable		cv;
 } global_data_t;
 
+// coalesced IP(v4) and UDP header
 typedef struct __attribute__((packed)) {
 	struct iphdr			ip;
 	struct udphdr			udp;
 } header_t;
 
+// standard IP checksum routine
 static uint16_t checksum(const iphdr& hdr)
 {
 	uint32_t sum = 0;
@@ -81,6 +85,7 @@ static uint16_t checksum(const iphdr& hdr)
 	return static_cast<uint16_t>(~sum);
 }
 
+// UNUSED
 std::string thread_getname(std::thread& t)
 {
 	char buf[17];
@@ -88,6 +93,7 @@ std::string thread_getname(std::thread& t)
 	return std::string(buf);
 }
 
+// UNUSED
 std::string thread_getname()
 {
 	char buf[17];
@@ -95,11 +101,13 @@ std::string thread_getname()
 	return std::string(buf);
 }
 
+// set the given thread's name
 void thread_setname(std::thread& t, const std::string& name)
 {
 	pthread_setname_np(t.native_handle(), name.c_str());
 }
 
+// set the given thread's CPU affinity
 void thread_setcpu(std::thread& t, unsigned int n)
 {
 	cpu_set_t cpu;
@@ -108,12 +116,16 @@ void thread_setcpu(std::thread& t, unsigned int n)
 	pthread_setaffinity_np(t.native_handle(), sizeof(cpu), &cpu);
 }
 
+//
+// Uses sendmmsg to construct multiple output packets
+// and deliver them to the kernel in one go
+//
 ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 {
-	const auto n = gd.batch_size;
+	const auto n = gd.batch_size;		// how many
 	mmsghdr msgs[n];
 	header_t header[n];
-	iovec iovecs[n * 2];
+	iovec iovecs[n * 2];			// two iovecs per message
 
 	for (size_t i = 0; i < n; ++i) {
 
@@ -124,20 +136,21 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 			td.query_num -= gd.query_count;
 		}
 
-		auto& hdr = msgs[i].msg_hdr;
 		auto& pkt = header[i];
 
-		int vn = i * 2;		// two iovecs per message
-		iovecs[vn] =  {
+		// populate the iovecs
+		int vn = i * 2;
+		iovecs[vn] =  {		// header
 			reinterpret_cast<char *>(&pkt),
 			sizeof(pkt)
 		};
-		iovecs[vn + 1] = {
+		iovecs[vn + 1] = {	// payload
 			const_cast<char *>(reinterpret_cast<const char *>(query.data())),
 			query.size()
 		};
 
 		// fill out msghdr
+		auto& hdr = msgs[i].msg_hdr;
 		memset(&hdr, 0, sizeof(hdr));
 		hdr.msg_iov = &iovecs[vn];
 		hdr.msg_iovlen = 2;
@@ -166,6 +179,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 		pkt.udp.dest = htons(gd.dest_port);
 		pkt.udp.len = htons(udp_size);
 
+		// update port number
 		td.port_offset = (td.port_offset + 1) % td.port_count;
 	}
 
@@ -182,6 +196,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 	return offset;
 }
 
+// blocks thread waiting for global condition variable
 void wait_for_start(global_data_t& gd)
 {
 	std::unique_lock<std::mutex> lock(gd.mutex);
@@ -190,6 +205,7 @@ void wait_for_start(global_data_t& gd)
 	}
 }
 
+// main sending thread worker
 void sender_loop(global_data_t& gd, thread_data_t& td)
 {
 	static sockaddr_ll addr = { 0 };
@@ -202,6 +218,7 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 	// wait for start condition
 	wait_for_start(gd);
 
+	// set up timing
 	timespec now;
 	timespec error = { 0, 0 };
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -216,17 +233,18 @@ void sender_loop(global_data_t& gd, thread_data_t& td)
 			gd.tx_count += res;
 			td.tx_count += res;
 
-			// artificial delay
+			// calculate inter-batch delay
 			uint64_t delta = 1e9 * gd.batch_size * gd.thread_count / gd.rate;
 
 			timespec next = now + delta - error;
 			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, nullptr);
 			clock_gettime(CLOCK_MONOTONIC, &now);
-			error = now - next;
+			error = now - next;	// compensate for timing errors
 		}
 	}
 }
 
+// sending thread entry point, handles exceptions
 void sender(global_data_t& gd, thread_data_t& td)
 {
 	try {
@@ -236,6 +254,7 @@ void sender(global_data_t& gd, thread_data_t& td)
 	}
 }
 
+// just counts packets per-thread
 ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, void *userdata)
 {
 	auto &td = *reinterpret_cast<thread_data_t*>(userdata);
@@ -243,10 +262,15 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 	return 0;
 }
 
+// receiving thread entry point
 void receiver(global_data_t& gd, thread_data_t& td)
 {
 	try {
+		// enable PACKET_RX_RING
 		td.packet.rx_ring_enable(11, 1024);	// frame size = 1 << 11 = 2048
+
+		// take packets off the ring until told not to,
+		// counting total packets received as it goes
 		while (!gd.stop) {
 			if (td.packet.rx_ring_next(receive_one, 10, &td)) {
 				++gd.rx_count;
@@ -257,6 +281,22 @@ void receiver(global_data_t& gd, thread_data_t& td)
 	}
 }
 
+//
+// background thread that tunes the sending rate every 0.1s
+//
+// in default mode, it continually takes the rolling average
+// of the last `qsize` received counts, and records the maximum
+// such value.
+//
+// the target sending rate is then set to the mid-point of the
+// current sending rate and the max value, plus the specified
+// increment.
+//
+// in this way the target rate should seek towards the value
+// at which the target rate and the received rate differ only
+// by the specified increment, i.e. where the packet loss
+// is stable at that value.
+//
 void rate_adapter(global_data_t& gd)
 {
 	const uint64_t interval = 1e8;
@@ -313,6 +353,7 @@ void rate_adapter(global_data_t& gd)
 	std::cout << "Peak RX rate = " << rpt_max << std::endl;
 }
 
+// thread to signal start and stop to all other threads
 void life_timer(global_data_t& gd)
 {
 	{
@@ -450,6 +491,7 @@ int main(int argc, char *argv[])
 			gd.query.edns(bufsize, do_bit << 15);
 		}
 
+		// start rate adaption thread
 		auto rate = std::thread(rate_adapter, std::ref(gd));
 		thread_setname(rate, "rate");
 
@@ -480,17 +522,21 @@ int main(int argc, char *argv[])
 			thread_setcpu(rx, i);
 		}
 
+		// start the life time thread
 		auto timer = std::thread(life_timer, std::ref(gd));
 		thread_setname(timer, "timer");
 
+		// wait for all the worker threads to die
 		for (int i = 0; i < n; ++i) {
 			tx_thread[i].join();
 			rx_thread[i].join();
 		}
 
+		// and wait for the helper threads too
 		timer.join();
 		rate.join();
 
+		// re-throw any per-thread exception recorded
 		if (globex) {
 			std::rethrow_exception(globex);
 		}

@@ -13,6 +13,9 @@
 #include "queryfile.h"
 #include "util.h"
 
+//
+// from https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+//
 static std::map<std::string, uint16_t> type_map = {
 	{ "A",		    1 },
 	{ "NS",		    2 },
@@ -101,6 +104,15 @@ static std::map<std::string, uint16_t> type_map = {
 	{ "DLV",	32769 }
 };
 
+//
+// Converts an RR type string to its numeric equivalent
+//
+// for performance, the match against the uppercase table
+// above is always done first (since the input files are
+// typically in upper case) and only if that lookup fails
+// does the code then create a temporary upper-cased
+// version of the input and recursively calls itself
+//
 static uint16_t type_to_number(const std::string& type, bool case_insensitive = true)
 {
 	auto itr = type_map.find(type);
@@ -122,6 +134,7 @@ static uint16_t type_to_number(const std::string& type, bool case_insensitive = 
 			throw std::runtime_error("numeric QTYPE unparseable");
 		}
 	} else {
+		// search again using the upper-cased version of the string
 		if (case_insensitive) {
 			std::string tmp(type);
 			std::transform(tmp.cbegin(), tmp.cend(), tmp.begin(), ::toupper);
@@ -132,6 +145,9 @@ static uint16_t type_to_number(const std::string& type, bool case_insensitive = 
 	}
 }
 
+//
+// creates a Record entry from the given qname and qtype
+//
 static QueryFile::Record make_record(const std::string& name, const std::string& type)
 {
 	QueryFile::Record record;
@@ -149,6 +165,9 @@ static QueryFile::Record make_record(const std::string& name, const std::string&
 	}
 }
 
+//
+// Loads a text file (in dnsperf format)
+//
 void QueryFile::read_txt(const std::string& filename)
 {
 	std::ifstream file(filename);
@@ -179,6 +198,9 @@ void QueryFile::read_txt(const std::string& filename)
 	std::swap(queries, list);
 }
 
+//
+// Loads a raw input file (<16 bit network order length><payload...>)
+//
 void QueryFile::read_raw(const std::string& filename)
 {
 	std::ifstream file(filename, std::ifstream::binary);
@@ -208,6 +230,9 @@ void QueryFile::read_raw(const std::string& filename)
 	std::swap(queries, list);
 }
 
+//
+// Saves the query set in raw format
+//
 void QueryFile::write_raw(const std::string& filename) const
 {
 	std::ofstream file(filename, std::ifstream::binary);
@@ -224,6 +249,10 @@ void QueryFile::write_raw(const std::string& filename) const
 	file.close();
 }
 
+//
+// Adds an EDNS OPT RR to every record in the QueryFile with
+// the specified UDP buffer length and flags
+//
 void QueryFile::edns(const uint16_t buflen, uint16_t flags)
 {
 	std::vector<uint8_t> opt = {
