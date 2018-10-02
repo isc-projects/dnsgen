@@ -460,7 +460,7 @@ int main(int argc, char *argv[])
 	}
 
 	// clamp EDNS buffer size to permitted range
-	bufsize = std::max(bufsize, 512);
+	bufsize = std::max(bufsize, (uint16_t)512);
 
 	try {
 		gd.ifindex = if_nametoindex(ifname);
