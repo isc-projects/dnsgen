@@ -21,6 +21,9 @@ timespec operator+(const timespec& a, const uint64_t ns);
 
 static const long ns_per_s = 1000000000UL;
 
+//
+// output a timespec with nanosecond precision
+//
 inline std::ostream& operator<<(std::ostream& os, const timespec& ts)
 {
 	using namespace std;
@@ -31,6 +34,9 @@ inline std::ostream& operator<<(std::ostream& os, const timespec& ts)
 	return os;
 }
 
+//
+// subtract one timespec from another, accounting for ns underflow
+//
 inline timespec operator-(const timespec& a, const timespec& b)
 {
 	timespec res;
@@ -46,6 +52,9 @@ inline timespec operator-(const timespec& a, const timespec& b)
 	return res;
 }
 
+//
+// add one timespec to another, accounting for ns overflow
+//
 inline timespec operator+(const timespec& a, const timespec& b)
 {
 	timespec res;
@@ -60,6 +69,9 @@ inline timespec operator+(const timespec& a, const timespec& b)
 	return res;
 }
 
+//
+// add ns to a timespec via the preceeding function
+//
 inline timespec operator+(const timespec& a, const uint64_t ns)
 {
 	auto div = ldiv(ns, ns_per_s);
