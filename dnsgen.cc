@@ -135,7 +135,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 		// populate the iovecs
 		int vn = i * 2;
-		iovecs[vn] =  {		// header
+		iovecs[vn] = {		// header
 			reinterpret_cast<char *>(&pkt),
 			sizeof(pkt)
 		};
@@ -180,7 +180,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 	size_t offset = 0;
 
-	while (offset < n)  {
+	while (offset < n) {
 		auto res = sendmmsg(td.packet.fd, &msgs[offset], n - offset, 0);
 		if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
 			throw_errno("sendmmsg");

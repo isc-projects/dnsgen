@@ -96,14 +96,14 @@ void echo_rx_ring(thread_data_t& td)
 
 void usage(int result = EXIT_FAILURE)
 {
-        using namespace std;
+	using namespace std;
 
-        cout << "dnsecho [-p <port>] -i <ifname> [-T <threads>]" << endl;
-        cout << "  -i the interface on which to listen" << endl;
-        cout << "  -p the port on which to listen (default: 8053)" << endl;
-        cout << "  -T the number of threads to run (default: ncpus)" << endl;
+	cout << "dnsecho [-p <port>] -i <ifname> [-T <threads>]" << endl;
+	cout << "  -i the interface on which to listen" << endl;
+	cout << "  -p the port on which to listen (default: 8053)" << endl;
+	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 
-        exit(result);
+	exit(result);
 }
 
 int main(int argc, char *argv[])
