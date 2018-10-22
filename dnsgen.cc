@@ -262,7 +262,7 @@ void receiver(global_data_t& gd, thread_data_t& td)
 {
 	try {
 		// enable PACKET_RX_RING
-		td.packet.rx_ring_enable(11, 1024);	// frame size = 1 << 11 = 2048
+		td.packet.rx_ring_enable(11, 4096);	// frame size = 1 << 11 = 2048
 
 		// take packets off the ring until told not to,
 		// counting total packets received as it goes
@@ -384,7 +384,8 @@ void usage(int result = EXIT_FAILURE)
 	cout << "  -m the MAC address of the server to query" << endl;
 	cout << "  -T the number of threads to run (default: ncpus)" << endl;
 	cout << "  -l run for at most this many seconds" << endl;
-	cout << "  -d the input data file" << endl;
+	cout << "  -D raw input data file" << endl;
+	cout << "  -d text input data file" << endl;
 	cout << "  -b packet batch size" << endl;
 	cout << "  -r initial packet rate (10000)" << endl;
 	cout << "  -R packet rate increment (10000)" << endl;
@@ -449,7 +450,7 @@ int main(int argc, char *argv[])
 	// check for illegal args
 	if ((gd.thread_count < 1) || (gd.runtime < 1) ||
 	    (gd.batch_size < 1) || (gd.increment < 1) ||
-	    (bufsize <= 0))
+	    (edns && (bufsize <= 0)))
 	{
 		usage();
 	}

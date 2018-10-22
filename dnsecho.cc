@@ -83,7 +83,7 @@ void echo_rx_ring(thread_data_t& td)
 {
 	try {
 		// enable PACKET_RX_RING mode 
-		td.packet.rx_ring_enable(11, 128);	// frame size = 2048 
+		td.packet.rx_ring_enable(9, 4096);	// frame size = 512
 
 		// continually take packets from the ring
 		while (true) {
