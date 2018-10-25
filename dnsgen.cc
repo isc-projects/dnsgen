@@ -374,19 +374,19 @@ void usage(int result = EXIT_FAILURE)
 	using namespace std;
 
 	cout << "dnsgen -i <ifname> -a <local_addr>" << endl;
-	cout << "       -s <server_addr> [-p <port>] -m <server_mac_addr>" << endl;
-	cout << "      [-T <threads>] [-l <timelimit>] -d <datafile>" << endl;
+	cout << "       -s <server_addr> -m <server_mac_addr> [-p <port>]" << endl;
+	cout << "       -D|-d <datafile> [-T <threads>] [-l <timelimit>]" << endl;
 	cout << "      [-b <batchsize>] [-r <rate_start>] [-R <rate_increment>" << endl;
 	cout << "  -i the network interface to use" << endl;
 	cout << "  -a the local address from which to send queries" << endl;
 	cout << "  -s the server to query" << endl;
 	cout << "  -p the port on which to query the server (default: 8053)" << endl;
 	cout << "  -m the MAC address of the server to query" << endl;
-	cout << "  -T the number of threads to run (default: ncpus)" << endl;
-	cout << "  -l run for at most this many seconds" << endl;
 	cout << "  -D raw input data file" << endl;
 	cout << "  -d text input data file" << endl;
-	cout << "  -b packet batch size" << endl;
+	cout << "  -T the number of threads to run (default: ncpus)" << endl;
+	cout << "  -l run for at most this many seconds (default: 30)" << endl;
+	cout << "  -b packet batch size (default: 32)" << endl;
 	cout << "  -r initial packet rate (10000)" << endl;
 	cout << "  -R packet rate increment (10000)" << endl;
 	cout << "  -M disable rate adaption" << endl;
