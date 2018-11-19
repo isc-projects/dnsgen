@@ -271,6 +271,11 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 		(void) in.read<uint8_t>(ihl - sizeof(iphdr));
 	}
 
+	// not UDP?
+	if (ip.protocol != IPPROTO_UDP) {
+		return 0;
+	}
+
 	// read UDP header
 	if (in.available() < sizeof(udphdr)) {
 		return 0;
