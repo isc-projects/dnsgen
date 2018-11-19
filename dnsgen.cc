@@ -265,8 +265,8 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 	if (in.available() < sizeof(iphdr)) {
 		return 0;
 	}
-	auto& iph = in.read<iphdr>();
-	auto ihl = iph.ihl * 4;
+	auto& ip = in.read<iphdr>();
+	auto ihl = ip.ihl * 4;
 	if (ihl != sizeof(iphdr)) {
 		(void) in.read<uint8_t>(ihl - sizeof(iphdr));
 	}
@@ -459,11 +459,12 @@ int main(int argc, char *argv[])
 	const char *dest_mac = nullptr;
 
 	int opt;
-	while ((opt = getopt(argc, argv, "i:a:s:m:d:D:p:l:T:b:r:R:MU:X")) != -1) {
+	while ((opt = getopt(argc, argv, "i:a:s:S:m:d:D:p:l:T:b:r:R:MU:X")) != -1) {
 		switch (opt) {
 			case 'i': ifname = optarg; break;
 			case 'a': src = optarg; break;
 			case 's': dest = optarg; break;
+			case 'S': break; // ignored
 			case 'm': dest_mac = optarg; break;
 			case 'd': datafile = optarg; break;
 			case 'D': rawfile = optarg; break;
@@ -542,11 +543,15 @@ int main(int argc, char *argv[])
 			td.packet.open();
 			td.packet.bind(gd.ifindex);
 
+			td.dest_port = htons(gd.dest_port);
 			td.query_num = i;
 			td.port_count = 4096;
 			td.port_base = 16384 + td.port_count * i;
 			td.tx_count = 0;
 			td.rx_count = 0;
+			for (int r = 0; r < 16; ++r) {
+				td.rx_rcode[r] = 0;
+			}
 
 			auto& tx = tx_thread[i] = std::thread(sender, std::ref(gd), std::ref(td));
 			thread_setname(tx, std::string("tx:") + std::to_string(i));
