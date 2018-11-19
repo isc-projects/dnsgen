@@ -32,6 +32,7 @@
 
 #include "queryfile.h"
 #include "packet.h"
+#include "buffer.h"
 #include "timer.h"
 #include "util.h"
 
@@ -46,8 +47,10 @@ typedef struct {
 	uint16_t			port_offset;
 	uint16_t			ip_id;
 	uint16_t			query_id;
+	uint16_t			dest_port;
 	uint64_t			tx_count;
 	uint64_t			rx_count;
+	uint64_t			rx_rcode[16];
 	size_t				query_num;
 } thread_data_t;
 
@@ -171,7 +174,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 		// fill out UDP header
 		pkt.udp.source = htons(td.port_base + td.port_offset);
-		pkt.udp.dest = htons(gd.dest_port);
+		pkt.udp.dest = td.dest_port;
 		pkt.udp.len = htons(udp_size);
 
 		// update port number
@@ -252,8 +255,39 @@ void sender(global_data_t& gd, thread_data_t& td)
 // just counts packets per-thread
 ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, void *userdata)
 {
+	ReadBuffer in(buffer, buflen);
+
+	// count packets
 	auto &td = *reinterpret_cast<thread_data_t*>(userdata);
 	++td.rx_count;
+
+	// read IP header and skip options
+	if (in.available() < sizeof(iphdr)) {
+		return 0;
+	}
+	auto& iph = in.read<iphdr>();
+	auto ihl = iph.ihl * 4;
+	if (ihl != sizeof(iphdr)) {
+		(void) in.read<uint8_t>(ihl - sizeof(iphdr));
+	}
+
+	// read UDP header
+	if (in.available() < sizeof(udphdr)) {
+		return 0;
+	}
+	auto& udp = in.read<udphdr>();
+	if (udp.source != td.dest_port) {
+		return 0;
+	}
+
+	// extract DNS header and count rcode
+	if (in.available() < 4) {
+		return 0;
+	}
+	auto* dns = in.read<uint16_t>(2);
+	auto rcode = ntohs(dns[1]) & 0x0f;
+	++td.rx_rcode[rcode];
+
 	return 0;
 }
 
@@ -531,6 +565,17 @@ int main(int argc, char *argv[])
 		// and wait for the helper threads too
 		timer.join();
 		rate.join();
+
+		// display rcode counters
+		for (int r = 0; r < 16; ++r) {
+			uint64_t c = 0;
+			for (int i = 0; i < n; ++i) {
+				c += thread_data[i].rx_rcode[r];
+			}
+			if (c) {
+				std::cout << "RCODE " << r << ": " << c << std::endl;
+			}
+		}
 
 		// re-throw any per-thread exception recorded
 		if (globex) {
