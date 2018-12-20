@@ -6,17 +6,14 @@
 
 class Buffer {
 
-protected:
-
+private:
 	uint8_t*		_base = nullptr;
 	size_t			_size = 0;
 	size_t			_position = 0;
 
 protected:
 	uint8_t* allocate(size_t n);
-	uint8_t& operator[](size_t x) const;
-
-protected:
+	uint8_t& element(size_t x) const;
 	Buffer(uint8_t* base, size_t size);
 
 public:
@@ -30,8 +27,6 @@ class ReadBuffer : public Buffer {
 
 public:
 	ReadBuffer(const uint8_t* base, size_t size);
-
-public:
 	const void* base() const;
 
 	template<typename T> const T& read();
@@ -45,8 +40,6 @@ class WriteBuffer : public Buffer {
 
 public:
 	WriteBuffer(uint8_t* base, size_t size);
-
-public:
 	void* base() const;
 
 	template<typename T> T& reserve();
@@ -79,7 +72,7 @@ inline WriteBuffer::WriteBuffer(uint8_t* base, size_t size)
 
 inline void Buffer::reset() {
 	_position = 0;
-};
+}
 
 inline size_t Buffer::size() const {
 	return _size;
@@ -97,7 +90,7 @@ inline size_t Buffer::available() const {
 inline uint8_t* Buffer::allocate(size_t n) {
 	assert(_base);
 	assert(available() >= n);
-	auto p = _base + _position;
+	auto* p = _base + _position;
 	_position += n;
 	return p;
 }
@@ -105,27 +98,27 @@ inline uint8_t* Buffer::allocate(size_t n) {
 //---------------------------------------------------------------------
 
 inline const void* ReadBuffer::base() const {
-	return _base;
+	return &element(0);
 }
 
 inline void* WriteBuffer::base() const {
-	return _base;
+	return &element(0);
 }
 
 //---------------------------------------------------------------------
 
-inline uint8_t& Buffer::operator[](size_t x) const {
+inline uint8_t& Buffer::element(size_t x) const {
 	assert(_base);
 	assert(x < _size);
 	return _base[x];
 }
 
 inline const uint8_t& ReadBuffer::operator[](size_t x) const {
-	return Buffer::operator[](x);
+	return element(x);
 }
 
 inline uint8_t& WriteBuffer::operator[](size_t x) const {
-	return Buffer::operator[](x);
+	return element(x);
 }
 
 //---------------------------------------------------------------------
@@ -154,7 +147,7 @@ T& WriteBuffer::reserve() {
 
 template<typename T>
 T& WriteBuffer::write(const T& v) {
-	auto p = reserve<T>(1);
+	auto* p = reserve<T>(1);
 	*p = v;
 	return *p;
 }
@@ -163,12 +156,12 @@ T& WriteBuffer::write(const T& v) {
 
 inline ReadBuffer::operator iovec() const
 {
-	return iovec { _base, _size };
+	return iovec { const_cast<void *>(base()), size() };
 }
 
 inline WriteBuffer::operator iovec() const
 {
-	return iovec { _base, _position };
+	return iovec { base(), position() };
 }
 
 //---------------------------------------------------------------------
