@@ -272,7 +272,7 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 	}
 
 	// not UDP?
-	if (ip.protocol != IPPROTO_UDP) {
+	if (iph.protocol != IPPROTO_UDP) {
 		return 0;
 	}
 
