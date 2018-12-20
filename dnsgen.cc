@@ -185,7 +185,7 @@ ssize_t send_many(global_data_t& gd, thread_data_t& td, sockaddr_ll& addr)
 
 	while (offset < n) {
 		auto res = sendmmsg(td.packet.fd, &msgs[offset], n - offset, 0);
-		if (res < 0 && !(errno == EAGAIN || errno == EWOULDBLOCK)) {
+		if ((res < 0) && (errno != EAGAIN)) {
 			throw_errno("sendmmsg");
 		}
 		offset += res;
@@ -272,7 +272,7 @@ ssize_t receive_one(uint8_t *buffer, size_t buflen, const sockaddr_ll *addr, voi
 	}
 
 	// not UDP?
-	if (iph.protocol != IPPROTO_UDP) {
+	if (ip.protocol != IPPROTO_UDP) {
 		return 0;
 	}
 
