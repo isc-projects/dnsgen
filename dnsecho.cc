@@ -94,7 +94,7 @@ void echo_rx_ring(thread_data_t& td)
 	}
 }
 
-void usage(int result = EXIT_FAILURE)
+void __attribute__((__noreturn__)) usage(int result = EXIT_FAILURE)
 {
 	using namespace std;
 

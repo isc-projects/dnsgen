@@ -408,7 +408,7 @@ void life_timer(global_data_t& gd)
 	gd.stop = true;
 }
 
-void usage(int result = EXIT_FAILURE)
+void __attribute__((__noreturn__)) usage(int result = EXIT_FAILURE)
 {
 	using namespace std;
 
