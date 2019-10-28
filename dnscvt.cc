@@ -33,12 +33,14 @@ int main(int argc, char *argv[])
 
 		// remove .txt extension if found
 		std::string input(argv[1]);
-		if (ends_with(input, ".txt")) {
-			input.erase(input.length() - 4);
+		std::string output = input;
+
+		if (ends_with(output, ".txt")) {
+			output.erase(output.length() - 4);
 		}
 
 		// append .raw
-		std::string output = input + ".raw";
+		output += ".raw";
 
 		// start the conversion
 		qf.read_txt(input);
