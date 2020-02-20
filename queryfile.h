@@ -33,7 +33,7 @@ public:
 public:
 
 	const Record&			operator[](size_t n) const {
-		return queries[n];
+		return queries[n % size()];
 	};
 
 	size_t				size() const {
