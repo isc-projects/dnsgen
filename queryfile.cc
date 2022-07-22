@@ -10,6 +10,7 @@
  */
 
 #include <cstdio>
+#include <limits>
 #include <iostream>
 #include <sstream>
 #include <fstream>
