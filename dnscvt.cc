@@ -10,6 +10,7 @@
  */
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
 #include "queryfile.h"
