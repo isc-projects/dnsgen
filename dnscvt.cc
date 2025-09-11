@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include <unistd.h>
 #include "queryfile.h"
 
 // via https://stackoverflow.com/a/2072890/6782
@@ -22,10 +23,31 @@ inline bool ends_with(std::string const & value, std::string const & ending)
     return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
+void usage(const char* progname) {
+	std::cerr << "usage: " << progname << " [-e] <txtfile>" << std::endl;
+	std::cerr << "  -e    Add EDNS OPT RR to queries" << std::endl;
+}
+
 int main(int argc, char *argv[])
 {
-	if (argc != 2) {
-		std::cerr << "usage: dnscvt <txtfile>" << std::endl;
+	bool add_edns = false;
+	int opt;
+	
+	while ((opt = getopt(argc, argv, "eh")) != -1) {
+		switch (opt) {
+		case 'e':
+			add_edns = true;
+			break;
+		case 'h':
+		case '?':
+		default:
+			usage(argv[0]);
+			return EXIT_FAILURE;
+		}
+	}
+	
+	if (optind >= argc) {
+		usage(argv[0]);
 		return EXIT_FAILURE;
 	}
 
@@ -33,7 +55,7 @@ int main(int argc, char *argv[])
 		QueryFile	qf;
 
 		// remove .txt extension if found
-		std::string input(argv[1]);
+		std::string input(argv[optind]);
 		std::string output = input;
 
 		if (ends_with(output, ".txt")) {
@@ -45,6 +67,12 @@ int main(int argc, char *argv[])
 
 		// start the conversion
 		qf.read_txt(input);
+		
+		// add EDNS if requested
+		if (add_edns) {
+			qf.edns(4096, 0);  // 4KB buffer, no flags
+		}
+		
 		qf.write_raw(output);
 
 	} catch (std::runtime_error& e) {
