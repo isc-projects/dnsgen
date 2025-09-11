@@ -18,6 +18,7 @@
 #include <cerrno>
 #include <map>
 #include <algorithm>
+#include <random>
 
 #include <arpa/inet.h>		// for ntohs() etc
 #include <resolv.h>		// for res_mkquery()
@@ -160,7 +161,7 @@ static uint16_t type_to_number(const std::string& type, bool case_insensitive = 
 //
 // creates a Record entry from the given qname and qtype
 //
-static QueryFile::Record make_record(const std::string& name, const std::string& type)
+static QueryFile::Record make_record(const std::string& name, const std::string& type, uint16_t query_id)
 {
 	QueryFile::Record record;
 	record.resize(12 + 255 + 4);	// maximum question section
@@ -173,6 +174,9 @@ static QueryFile::Record make_record(const std::string& name, const std::string&
 		throw std::runtime_error("couldn't parse domain name");
 	} else {
 		record.resize(n);
+		// Override transaction ID with provided query_id
+		uint16_t* txid = reinterpret_cast<uint16_t*>(record.data());
+		*txid = htons(query_id);
 		return record;
 	}
 }
@@ -180,7 +184,7 @@ static QueryFile::Record make_record(const std::string& name, const std::string&
 //
 // Loads a text file (in dnsperf format)
 //
-void QueryFile::read_txt(const std::string& filename)
+void QueryFile::read_txt(const std::string& filename, uint32_t seed)
 {
 	std::ifstream file(filename);
 	if (!file) {
@@ -190,13 +194,18 @@ void QueryFile::read_txt(const std::string& filename)
 	storage_t list;
 	std::string name, type;
 	size_t line_no = 0;
+	
+	// Initialize random number generator with fixed seed
+	std::mt19937 rng(seed);
+	std::uniform_int_distribution<uint16_t> dist(0, UINT16_MAX);
 
 	while (file >> name >> type) {
 		line_no++;
 
 		try {
 			Record record;
-			list.push_back(make_record(name, type));
+			uint16_t query_id = dist(rng);
+			list.push_back(make_record(name, type, query_id));
 		} catch (std::runtime_error &e) {
 			std::string error = "reading query file at line "
 					+ std::to_string(line_no)
