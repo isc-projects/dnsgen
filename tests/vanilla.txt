@@ -1,0 +1,5 @@
+example.com A
+www.example.com A
+mail.example.com MX
+ftp.example.com CNAME
+ns1.example.com A

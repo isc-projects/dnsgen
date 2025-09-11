@@ -25,7 +25,7 @@ private:
 	storage_t			queries;
 
 public:
-	void				read_txt(const std::string& filename);
+	void				read_txt(const std::string& filename, uint32_t seed = 42);
 	void				read_raw(const std::string& filename);
 	void				write_raw(const std::string& filename) const;
 	void				edns(const uint16_t buflen, uint16_t flags);
