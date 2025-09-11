@@ -16,6 +16,9 @@
 #include <unistd.h>
 #include "queryfile.h"
 
+// EDNS flag constants
+constexpr uint16_t EDNS_DO_BIT = 0x8000;  // DNSSEC OK bit
+
 // via https://stackoverflow.com/a/2072890/6782
 inline bool ends_with(std::string const & value, std::string const & ending)
 {
@@ -24,19 +27,24 @@ inline bool ends_with(std::string const & value, std::string const & ending)
 }
 
 void usage(const char* progname) {
-	std::cerr << "usage: " << progname << " [-e] <txtfile>" << std::endl;
+	std::cerr << "usage: " << progname << " [-e] [-D] <txtfile>" << std::endl;
 	std::cerr << "  -e    Add EDNS OPT RR to queries" << std::endl;
+	std::cerr << "  -D    Add EDNS OPT RR with DO (DNSSEC OK) bit" << std::endl;
 }
 
 int main(int argc, char *argv[])
 {
 	bool add_edns = false;
+	bool add_dnssec = false;
 	int opt;
 	
-	while ((opt = getopt(argc, argv, "eh")) != -1) {
+	while ((opt = getopt(argc, argv, "eDh")) != -1) {
 		switch (opt) {
 		case 'e':
 			add_edns = true;
+			break;
+		case 'D':
+			add_dnssec = true;
 			break;
 		case 'h':
 		case '?':
@@ -68,8 +76,10 @@ int main(int argc, char *argv[])
 		// start the conversion
 		qf.read_txt(input);
 		
-		// add EDNS if requested
-		if (add_edns) {
+		// add EDNS if requested (-D overrides -e)
+		if (add_dnssec) {
+			qf.edns(4096, EDNS_DO_BIT);  // 4KB buffer, DO bit set
+		} else if (add_edns) {
 			qf.edns(4096, 0);  // 4KB buffer, no flags
 		}
 		
